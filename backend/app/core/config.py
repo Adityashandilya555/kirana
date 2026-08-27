@@ -1,19 +1,9 @@
 """Application settings. Every secret lives here and nowhere else."""
 
-from typing import Annotated, Any, Literal
+from typing import Literal
 
-from pydantic import BeforeValidator, computed_field
+from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-def _split_csv(v: Any) -> Any:
-    """Accept either a comma-separated string or a real list from the env."""
-    if isinstance(v, str) and not v.startswith("["):
-        return [item.strip() for item in v.split(",") if item.strip()]
-    return v
-
-
-CommaSeparated = Annotated[list[str], BeforeValidator(_split_csv)]
 
 
 class Settings(BaseSettings):
@@ -27,10 +17,20 @@ class Settings(BaseSettings):
     # --- CORS -------------------------------------------------------------
     # The regex is what lets every Vercel preview deploy work without a
     # backend redeploy. Without it, only the exact origins below are allowed.
-    BACKEND_CORS_ORIGINS: CommaSeparated = ["http://localhost:5173"]
+    # Kept as a raw string, not a list: pydantic-settings JSON-decodes complex
+    # types straight out of dotenv, before any validator gets a chance to run,
+    # so a plain comma-separated value would raise at import time.
+    BACKEND_CORS_ORIGINS: str = "http://localhost:5173"
     BACKEND_CORS_ORIGIN_REGEX: str = r"https://.*\.vercel\.app"
 
-    # --- Supabase (server-side only; never shipped to a browser) ----------
+    # --- Database ---------------------------------------------------------
+    # DATABASE_URL wins when set: a direct asyncpg connection, used for local
+    # development and integration tests. Otherwise we go through Supabase's
+    # PostgREST. Both speak the same rpc() surface, so application code
+    # never learns which one it is talking to.
+    DATABASE_URL: str = ""
+
+    # Supabase (server-side only; never shipped to a browser)
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_ROLE_KEY: str = ""
 
@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def cors_origins(self) -> list[str]:
-        return [str(o).rstrip("/") for o in self.BACKEND_CORS_ORIGINS]
+        return [o.strip().rstrip("/") for o in self.BACKEND_CORS_ORIGINS.split(",") if o.strip()]
 
 
 settings = Settings()

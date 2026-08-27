@@ -334,3 +334,91 @@ begin
   delete from campaigns where merchant_id = p_merchant_id;  -- cascades
   return jsonb_build_object('ok',true,'note','REPRINT THE QR SHEET.');
 end $$;
+
+-- ===================== read + create helpers ==============================
+-- Everything the API needs is a named database function. There is no ad-hoc
+-- SQL in the application, which keeps the data layer to exactly rpc().
+
+create or replace function public.create_campaign(
+  p_merchant_id uuid, p_name text, p_budget_paise bigint,
+  p_max_discount_bps int, p_margin_floor_bps int,
+  p_max_turns int, p_slot_count int
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  if not exists (select 1 from merchants where id = p_merchant_id)
+    then raise exception 'MERCHANT_NOT_FOUND'; end if;
+
+  insert into campaigns (merchant_id, name, budget_paise, max_discount_bps,
+                         margin_floor_bps, max_turns, slot_count)
+  values (p_merchant_id, p_name, p_budget_paise, p_max_discount_bps,
+          p_margin_floor_bps, p_max_turns, p_slot_count)
+  returning id into v_id;
+
+  return get_campaign(v_id);
+end $$;
+
+create or replace function public.get_campaign(p_campaign_id uuid)
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'id', c.id, 'name', c.name, 'status', c.status,
+    'merchant', jsonb_build_object('id', m.id, 'name', m.name, 'store_line', m.store_line),
+    'budget_paise', c.budget_paise, 'spent_paise', c.spent_paise,
+    'reserved_paise', c.reserved_paise,
+    'remaining_paise', c.budget_paise - c.spent_paise - c.reserved_paise,
+    'max_discount_bps', c.max_discount_bps, 'margin_floor_bps', c.margin_floor_bps,
+    'max_turns', c.max_turns, 'slot_count', c.slot_count,
+    'merkle_root', c.merkle_root, 'policy_hash', c.policy_hash,
+    'tree_size', c.tree_size, 'committed_at', c.committed_at,
+    'created_at', c.created_at,
+    'slots_total',    (select count(*) from slots s where s.campaign_id = c.id),
+    'slots_redeemed', (select count(*) from slots s where s.campaign_id = c.id and s.status = 'redeemed'),
+    'slots_verified', (select count(*) from slots s where s.campaign_id = c.id and s.verified_at is not null)
+  )
+  from campaigns c join merchants m on m.id = c.merchant_id
+  where c.id = p_campaign_id;
+$$;
+
+-- Slot tokens and ceilings for the printable sheet. Deliberately omits the
+-- salt: the sheet is a physical object that leaves the merchant's hands.
+create or replace function public.list_campaign_slots(p_campaign_id uuid)
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'leaf_index', s.leaf_index, 'slot_token', s.slot_token,
+           'ceiling_bps', s.ceiling_bps, 'status', s.status,
+           'leaf_hash', s.leaf_hash
+         ) order by s.leaf_index), '[]'::jsonb)
+  from slots s where s.campaign_id = p_campaign_id;
+$$;
+
+create or replace function public.get_audit_feed(
+  p_campaign_id uuid, p_after_id bigint default 0, p_limit int default 50
+) returns jsonb
+language sql stable security definer set search_path = public as $$
+  with rows as (
+    select d.* from decisions d
+     where d.campaign_id = p_campaign_id and d.id > coalesce(p_after_id, 0)
+     order by d.id asc limit least(coalesce(p_limit, 50), 200)
+  )
+  select jsonb_build_object(
+    'cursor', coalesce((select max(id) from rows), coalesce(p_after_id, 0)),
+    'campaign', get_campaign(p_campaign_id),
+    'items', coalesce((select jsonb_agg(to_jsonb(r) order by r.id) from rows r), '[]'::jsonb)
+  );
+$$;
+
+create or replace function public.get_merchant_by_name(p_name text)
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  select to_jsonb(m) from merchants m where m.name = p_name limit 1;
+$$;
+
+create or replace function public.list_merchant_campaigns(p_merchant_id uuid)
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(get_campaign(c.id) order by c.created_at desc), '[]'::jsonb)
+  from campaigns c where c.merchant_id = p_merchant_id;
+$$;

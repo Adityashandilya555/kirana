@@ -16,6 +16,7 @@ dependencies = [
     "langchain-core>=0.3",
     "langchain-openai>=0.2",
     "structlog>=24.4",
+    "asyncpg>=0.31.0",
 ]
 
 [dependency-groups]

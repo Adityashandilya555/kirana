@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import health
+from app.api.routes import campaigns, health
 from app.core import db as dbmod
 from app.core.config import settings
 
@@ -28,11 +28,13 @@ log = logging.getLogger("kirana")
 async def lifespan(app: FastAPI):
     app.state.db = None
     try:
-        app.state.db = await dbmod.create_db_client()
-        log.info("supabase client ready")
+        app.state.db = await dbmod.create_db_backend()
+        log.info("database ready via %s backend", app.state.db.name)
     except Exception as exc:  # noqa: BLE001
-        log.warning("supabase client unavailable: %s", exc)
+        log.warning("database unavailable: %s", exc)
     yield
+    if app.state.db is not None:
+        await app.state.db.close()
     app.state.db = None
 
 
@@ -55,6 +57,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(campaigns.router)
 
 
 @app.get("/")

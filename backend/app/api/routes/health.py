@@ -29,8 +29,9 @@ async def health_deep(request: Request) -> dict:
     if client is None:
         return {"ok": False, "db": "unconfigured", "env": settings.APP_ENV}
     try:
-        alive = await dbmod.ping(client)
-        return {"ok": alive, "db": "up" if alive else "down", "env": settings.APP_ENV}
+        alive = await client.ping()
+        return {"ok": alive, "db": "up" if alive else "down",
+                "backend": client.name, "env": settings.APP_ENV}
     except Exception as exc:  # noqa: BLE001 - a probe must never 500
         return {
             "ok": False,

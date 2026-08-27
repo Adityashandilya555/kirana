@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ campaign.name }} — shelf codes</title>
+<style>
+  /* This page is paper. It is deliberately light in every theme: a viewer in
+     dark mode would otherwise get invisible tokens and dark-on-dark codes. */
+  :root { --ink:#15171e; --soft:#565d6d; --line:#c9cfda; --accent:#3a3f8f;
+          color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:10mm 8mm; color:var(--ink); background:#ffffff;
+         font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { border-bottom:2px solid var(--ink); padding-bottom:3mm; margin-bottom:5mm; }
+  h1 { margin:0 0 1mm; font-size:15pt; letter-spacing:-.01em; }
+  .sub { font-size:8.5pt; color:var(--soft); }
+  .commit { margin-top:2mm; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size:7pt; color:var(--soft); word-break:break-all; line-height:1.5; }
+  .commit b { color:var(--accent); }
+  .grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:4mm; }
+  .tile { background:#ffffff; border:1px solid var(--line); border-radius:2mm; padding:3mm 2mm 2mm;
+          text-align:center; break-inside:avoid; page-break-inside:avoid; }
+  .tile svg { width:32mm; height:32mm; display:block; margin:0 auto; }
+  .tok { margin-top:1.5mm; color:var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+         font-size:9pt; font-weight:600; letter-spacing:.06em; }
+  .cap { font-size:7pt; color:var(--soft); margin-top:.5mm; }
+  .idx { position:relative; top:-1mm; font-size:6.5pt; color:var(--line); }
+  footer { margin-top:6mm; padding-top:2mm; border-top:1px solid var(--line);
+           font-size:7pt; color:var(--soft); }
+  .noprint { margin-bottom:5mm; padding:3mm; background:#eef0f7;
+             border-left:3px solid var(--accent); font-size:9pt; border-radius:0 2mm 2mm 0; }
+  @media print { .noprint { display:none; } body { padding:0; } }
+  @page { size:A4; margin:10mm; }
+</style>
+</head>
+<body>
+
+<div class="noprint">
+  <b>Print this at 100% scale</b> (no “fit to page”) on matte paper, then scan a tile
+  from ~30&nbsp;cm with the phone’s normal camera app. Screens are far more forgiving
+  than paper — a scan off a monitor does not prove these will work on the shelf.
+</div>
+
+<header>
+  <h1>{{ campaign.name }}</h1>
+  <div class="sub">{{ campaign.merchant.name }} — {{ campaign.merchant.store_line }}</div>
+  <div class="commit">
+    committed <b>{{ campaign.committed_at }}</b> ·
+    budget ₹{{ '%.2f'|format(campaign.budget_paise / 100) }} ·
+    ceiling {{ '%g'|format(campaign.max_discount_bps / 100) }}% ·
+    margin floor {{ '%g'|format(campaign.margin_floor_bps / 100) }}%<br>
+    merkle root <b>{{ campaign.merkle_root }}</b><br>
+    policy hash <b>{{ campaign.policy_hash }}</b>
+  </div>
+</header>
+
+<div class="grid">
+  {% for t in tiles %}
+  <div class="tile">
+    {{ t.svg | safe }}
+    <div class="tok">{{ t.token }}</div>
+    <div class="cap">up to {{ t.ceiling_pct }}% off <span class="idx">#{{ t.leaf_index }}</span></div>
+  </div>
+  {% endfor %}
+</div>
+
+<footer>
+  {{ tiles | length }} codes · QR version {{ version }}, error correction M ·
+  every code resolves to {{ base_url }}/s/&lt;code&gt; ·
+  each ceiling above was fixed before this sheet was printed and is provable
+  against the root shown at the top of this page.
+</footer>
+
+</body>
+</html>
