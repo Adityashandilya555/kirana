@@ -75,7 +75,9 @@ async def redemption_qr(token: str) -> Response:
             status_code=400,
             detail={"code": "BAD_TOKEN", "message": "Not a redemption code."},
         )
-    svg = qr_service.qr_svg(ids.redemption_payload(canonical), scale=6)
+    # Standalone, not inline: an image/svg+xml response with no xmlns renders
+    # as a broken image rather than raising, so the failure is silent.
+    svg = qr_service.qr_svg_standalone(ids.redemption_payload(canonical), scale=6)
     return Response(
         content=svg,
         media_type="image/svg+xml",
