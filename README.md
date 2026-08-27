@@ -47,3 +47,24 @@ before the conversation started.
   forcing returns plausible prose instead of raising.
 - **The printed QR encodes a plain HTTPS URL**, not a payment QR. Razorpay QR
   codes only work in live mode.
+
+## Known demo-only tradeoffs
+
+Named here rather than discovered later.
+
+- **`VITE_MERCHANT_API_KEY` ships in the public JS bundle.** It gates campaign
+  create and commit. This is unavoidable while the merchant console is a page in
+  the same single-page app, and a proper fix (server-side merchant session, or a
+  token exchange) would cost about a day and buys nothing for a test-mode demo
+  with no real money. Rotate it if this ever outlives the demo.
+- **One hardcoded merchant, one shared key.** Multi-tenant auth is explicitly out
+  of scope.
+- **Razorpay runs in test mode.** Test-mode QR codes are not scannable by real UPI
+  apps, which is exactly why the printed sticker encodes a plain HTTPS URL and
+  payment happens in Standard Checkout inside the browser.
+
+What is *not* a tradeoff: every one of our database functions is revoked from
+`anon` and `authenticated` (`sql/004_grants.sql`). They are all `SECURITY DEFINER`
+and therefore bypass RLS, so an EXECUTE grant to `anon` would be a direct path to
+`nuke_demo()` over PostgREST. `backend/tests/test_privileges.py` guards it, because
+Postgres re-grants EXECUTE to PUBLIC on every `create or replace`.

@@ -422,3 +422,67 @@ language sql stable security definer set search_path = public as $$
   select coalesce(jsonb_agg(get_campaign(c.id) order by c.created_at desc), '[]'::jsonb)
   from campaigns c where c.merchant_id = p_merchant_id;
 $$;
+
+-- ============================== health_check ==============================
+-- Deliberately NOT the old ping(). ping() was `language sql stable` returning
+-- a literal, so it needed no privilege at all: a backend misconfigured with
+-- the anon key reported a full green while every table read silently returned
+-- [] under RLS. This one reads a real table, so a wrong key fails loudly.
+create or replace function public.health_check()
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare v_items int; v_campaigns int;
+begin
+  select count(*) into v_items     from catalog_items;
+  select count(*) into v_campaigns from campaigns;
+  return jsonb_build_object(
+    'ok', v_items > 0,
+    'catalog_items', v_items,
+    'campaigns', v_campaigns,
+    'server_time', now()
+  );
+end $$;
+
+-- =============================== privileges ===============================
+-- MUST be the last thing in this file. Postgres grants EXECUTE to PUBLIC on
+-- every newly created function, so any `create or replace` above silently
+-- re-opens everything -- including nuke_demo -- to the anon role. Re-running
+-- this file therefore has to re-close it.
+--
+-- Scoped to OUR functions by name, never `all functions in schema public`:
+-- pgcrypto also lives in public, and gen_random_uuid() is a column default on
+-- six tables. Revoking that from PUBLIC would break inserts for every role
+-- that is not service_role, which is a much larger blast radius than the hole
+-- being closed.
+--
+-- Only service_role executes these. The browser never talks to Postgres; all
+-- access goes through the FastAPI backend, which holds the service key.
+do $$
+declare
+  fn record;
+  ours text[] := array[
+    'ping','health_check','create_campaign','commit_campaign','get_campaign',
+    'list_campaign_slots','list_merchant_campaigns','get_merchant_by_name',
+    'get_session_context','get_audit_feed','reserve_slot','settle_payment',
+    'release_reservation','verify_redemption','reset_demo','nuke_demo'
+  ];
+begin
+  for fn in
+    select p.oid::regprocedure as sig
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = any(ours)
+  loop
+    execute format('revoke execute on function %s from public', fn.sig);
+    -- These roles only exist on Supabase, not on a bare local Postgres.
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+      execute format('revoke execute on function %s from anon', fn.sig);
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+      execute format('revoke execute on function %s from authenticated', fn.sig);
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'service_role') then
+      execute format('grant execute on function %s to service_role', fn.sig);
+    end if;
+  end loop;
+end $$;

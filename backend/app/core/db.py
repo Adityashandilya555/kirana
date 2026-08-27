@@ -51,8 +51,24 @@ class DbBackend(ABC):
     @abstractmethod
     async def close(self) -> None: ...
 
-    async def ping(self) -> bool:
-        return await self.rpc("ping") == "pong"
+    async def health(self) -> dict[str, Any]:
+        """Prove we can actually READ, not merely connect.
+
+        The old ping() returned a literal from an unprivileged function, so a
+        backend misconfigured with the anon key reported a full green while
+        every table read silently returned [] under RLS. health_check() reads
+        a real table and is revoked from anon, so a wrong key raises here
+        instead of lying.
+        """
+        result = await self.rpc("health_check")
+        if not isinstance(result, dict) or result.get("catalog_items", 0) < 1:
+            raise RpcError(
+                "health_check",
+                "EMPTY_DATABASE",
+                f"connected, but the catalog is empty: {result!r}. "
+                "Either the seed never ran, or this key cannot read the tables.",
+            )
+        return result
 
 
 class PostgresBackend(DbBackend):
