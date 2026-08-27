@@ -1,0 +1,22 @@
+-- Fix for an already-deployed project. Fresh environments get this from
+-- 002_functions.sql, which now declares the search_path correctly.
+--
+-- settle_payment mints the redemption token with gen_random_bytes(12), but
+-- Supabase installs pgcrypto into the `extensions` schema, not public. With
+-- `set search_path = public` the function cannot see it, so EVERY settlement
+-- fails with "function gen_random_bytes(integer) does not exist" -- on the
+-- checkout handler, the webhook and the polling path alike. Phase 4 would
+-- have hit this on its first test payment.
+--
+-- It was masked for a long time because gen_random_uuid() is ALSO a
+-- pg_catalog builtin: the uuid column defaults on six tables resolved fine
+-- while the one call to gen_random_bytes did not.
+--
+-- ALTER rather than CREATE OR REPLACE on purpose: CREATE re-grants EXECUTE to
+-- PUBLIC, which would silently undo the Phase 2A revoke. ALTER leaves
+-- privileges alone, so this file needs no trailing revoke block.
+--
+-- A bare local Postgres has no `extensions` schema. Postgres ignores missing
+-- schemas in search_path, so this is correct in both places.
+alter function public.settle_payment(text, text, text, bigint, text)
+  set search_path = public, extensions;

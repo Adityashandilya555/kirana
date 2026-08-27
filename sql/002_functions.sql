@@ -146,7 +146,15 @@ create or replace function public.settle_payment(
   p_rzp_order_id text, p_rzp_payment_id text, p_signature text,
   p_amount_paise bigint, p_source text
 ) returns jsonb
-language plpgsql security definer set search_path = public as $$
+-- search_path includes `extensions` because this is the one function that
+-- calls gen_random_bytes(). Supabase installs pgcrypto into `extensions`,
+-- not public, so `set search_path = public` alone cannot see it and every
+-- settlement fails with "function gen_random_bytes(integer) does not exist".
+-- gen_random_uuid() masked this: it is also a pg_catalog builtin, so the
+-- table defaults resolved fine while the token mint did not. A bare local
+-- Postgres has no `extensions` schema and Postgres ignores missing schemas
+-- in search_path, so this is safe in both places.
+language plpgsql security definer set search_path = public, extensions as $$
 declare v_sess sessions%rowtype; v_slot slots%rowtype;
         v_camp campaigns%rowtype; v_pay payments%rowtype; v_token text;
 begin
