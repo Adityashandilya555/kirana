@@ -1,97 +1,200 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { API_BASE, apiGet } from '../lib/api'
+import ChatBubble, { TypingBubble } from '../components/ChatBubble'
+import OfferCard from '../components/OfferCard'
+import { ApiError, apiPost } from '../lib/api'
+import type { ChatReply, Offer, SessionPayload, Turn } from '../lib/api'
 
 /**
- * PHASE 0 STUB. This exists to prove the rails, not to be the chat UI.
- * It answers three questions at once, from the phone:
- *   1. does the Vercel SPA rewrite serve a DEEP LINK (/s/<token>)?
- *   2. does a cross-origin call to Railway work (CORS + $PORT + Supabase)?
- *   3. does getUserMedia open the rear camera on this handset?
+ * The customer's whole experience: scan a sticker, land here, haggle.
+ *
+ * Layout notes that are load-bearing on Android Chrome. The keyboard resizes
+ * only the VISUAL viewport (Chrome 108+), so `100dvh` alone does not keep the
+ * composer on screen. What works is the combination already in index.css --
+ * a flex column, `min-height:0` on the scroll pane so it may shrink below its
+ * content, and no `position:fixed` anywhere -- plus
+ * `interactive-widget=resizes-content` in the viewport meta.
+ *
+ * The offer card is rendered from the `offer` object the backend built out of
+ * bounds.Decision. It is never parsed out of the assistant's sentence: if the
+ * prose and the gate ever disagree, the number the shopper can act on is the
+ * gate's.
  */
 export default function SlotPage() {
   const { token } = useParams<{ token: string }>()
-  const [health, setHealth] = useState<unknown>(null)
-  const [healthErr, setHealthErr] = useState<string | null>(null)
-  const [camErr, setCamErr] = useState<string | null>(null)
-  const [camOn, setCamOn] = useState(false)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
+  const [session, setSession] = useState<SessionPayload | null>(null)
+  const [turns, setTurns] = useState<Turn[]>([])
+  const [offer, setOffer] = useState<Offer | null>(null)
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const [fatal, setFatal] = useState<{ code: string; message: string } | null>(null)
+  const [manual, setManual] = useState('')
 
-  useEffect(() => {
-    apiGet('/health/deep').then(setHealth).catch((e) => setHealthErr(String(e)))
-    return () => streamRef.current?.getTracks().forEach((t) => t.stop())
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const endRef = useRef<HTMLDivElement>(null)
+
+  const open = useCallback(async (slotToken: string) => {
+    setFatal(null)
+    try {
+      const payload = await apiPost<SessionPayload>('/api/v1/sessions', {
+        slot_token: slotToken,
+      })
+      setSession(payload)
+      setTurns(payload.transcript ?? [])
+    } catch (e) {
+      if (e instanceof ApiError) setFatal({ code: e.code, message: e.message })
+      else
+        setFatal({
+          code: 'NETWORK',
+          message:
+            'Could not reach the shop. Check your connection and try again.',
+        })
+    }
   }, [])
 
-  // getUserMedia must be called inside the tap handler. On iOS the camera
-  // permission dialog does NOT itself count as a user gesture, so calling
-  // this on mount is unreliable. facingMode uses `ideal`, never `exact` --
-  // `exact` throws OverconstrainedError on devices with no rear camera.
-  async function startCamera() {
-    setCamErr(null)
+  useEffect(() => {
+    if (token) void open(token)
+  }, [token, open])
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+  }, [turns, sending, offer])
+
+  async function send() {
+    const text = draft.trim()
+    if (!text || sending || !session) return
+    setDraft('')
+    setTurns((t) => [...t, { role: 'user', content: text }])
+    setSending(true)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-      })
-      streamRef.current = stream
-      if (videoRef.current) videoRef.current.srcObject = stream
-      setCamOn(true)
-    } catch (e) {
-      const err = e as DOMException
-      setCamErr(
-        err.name === 'NotAllowedError'
-          ? 'Camera denied. On Android: site settings -> Permissions -> Camera.'
-          : `${err.name}: ${err.message}`,
+      const reply = await apiPost<ChatReply>(
+        `/api/v1/sessions/${session.session_id}/chat`,
+        { message: text },
       )
+      setTurns((t) => [...t, { role: 'assistant', content: reply.reply }])
+      if (reply.offer) setOffer(reply.offer)
+    } catch (e) {
+      const message =
+        e instanceof ApiError
+          ? e.message
+          : 'That did not go through. Try once more.'
+      setTurns((t) => [...t, { role: 'system', content: message }])
+    } finally {
+      setSending(false)
     }
   }
 
-  const Row = ({ label, ok, children }: { label: string; ok: boolean | null; children: React.ReactNode }) => (
-    <div className="border border-hairline rounded p-3">
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <span>{ok === null ? '…' : ok ? '✅' : '❌'}</span>
-        <span>{label}</span>
-      </div>
-      <div className="mt-1 text-xs text-ink-soft break-all font-mono">{children}</div>
-    </div>
-  )
+  // -- the code is not one of ours -----------------------------------------
+  if (fatal) {
+    return (
+      <main className="mx-auto flex h-dvh max-w-md flex-col justify-center gap-4 p-6">
+        <h1 className="text-lg font-semibold text-ink">
+          {fatal.code === 'NETWORK' ? 'No connection' : 'That code did not work'}
+        </h1>
+        <p className="text-sm leading-relaxed text-ink-soft">{fatal.message}</p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            const t = manual.trim().toUpperCase()
+            if (t) void open(t)
+          }}
+          className="flex gap-2"
+        >
+          <input
+            value={manual}
+            onChange={(e) => setManual(e.target.value)}
+            placeholder="Type the code"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            className="min-w-0 flex-1 rounded-xl border border-hairline px-3 py-2.5
+                       font-mono text-base uppercase tracking-wider"
+          />
+          <button
+            type="submit"
+            className="rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white"
+          >
+            Go
+          </button>
+        </form>
+        {/* A structured error rather than a network failure is itself
+            evidence the deep link, CORS and the backend are all healthy. */}
+        <p className="text-xs text-ink-soft">
+          Reached the shop’s server ({fatal.code}).
+        </p>
+      </main>
+    )
+  }
+
+  if (!session) {
+    return (
+      <main className="flex h-dvh items-center justify-center">
+        <p className="text-sm text-ink-soft">Opening…</p>
+      </main>
+    )
+  }
+
+  const itemName =
+    session.catalog.find((c) => c.sku === offer?.sku)?.name ?? offer?.sku
+  const turnsLeft = (session.campaign.max_turns ?? 6) - turns.filter((t) => t.role === 'user').length
 
   return (
-    <main className="mx-auto max-w-md p-4 flex flex-col gap-3">
-      <h1 className="text-xl font-bold">Kirana Agent — Phase 0</h1>
+    <div className="chat-shell mx-auto max-w-md bg-slate-50">
+      <header className="flex-none border-b border-hairline bg-white px-4 py-3">
+        <h1 className="text-sm font-semibold text-ink">{session.merchant.name}</h1>
+        <p className="text-xs text-ink-soft">
+          {session.merchant.store_line} · code{' '}
+          <span className="font-mono">{session.slot.slot_token}</span>
+        </p>
+      </header>
 
-      <Row label="Deep link resolved (SPA rewrite)" ok={!!token}>
-        slot token: <b>{token ?? '(none)'}</b>
-      </Row>
+      <div ref={scrollRef} className="chat-scroll space-y-3 px-4 py-4">
+        {turns.length === 0 && (
+          <ChatBubble role="assistant">
+            Namaste! Ask me about anything on the shelf and I will see what I can
+            do on the price.
+          </ChatBubble>
+        )}
+        {turns.map((t, i) => (
+          <ChatBubble key={i} role={t.role}>
+            {t.content}
+          </ChatBubble>
+        ))}
+        {sending && <TypingBubble />}
+        {offer && (
+          <div className="pt-1">
+            <OfferCard offer={offer} itemName={itemName} />
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
 
-      <Row label="Backend reachable (CORS + DB)" ok={healthErr ? false : health ? true : null}>
-        {API_BASE}/health/deep
-        <br />
-        {healthErr ?? (health ? JSON.stringify(health) : 'checking…')}
-      </Row>
-
-      <Row label="Rear camera" ok={camErr ? false : camOn ? true : null}>
-        {camErr ?? (camOn ? 'stream live' : 'not started')}
-      </Row>
-
-      {!camOn && (
-        <button
-          onClick={startCamera}
-          className="rounded bg-accent px-4 py-3 text-white font-medium"
-        >
-          Start camera
-        </button>
-      )}
-
-      {/* playsinline + muted are required or iOS hijacks this into the
-          fullscreen native player and the overlay breaks. */}
-      <video
-        ref={videoRef}
-        playsInline
-        muted
-        autoPlay
-        className={`w-full rounded border border-hairline ${camOn ? '' : 'hidden'}`}
-      />
-    </main>
+      <form
+        className="chat-composer border-t border-hairline bg-white px-3 py-2.5"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void send()
+        }}
+      >
+        <div className="flex items-end gap-2">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={turnsLeft > 0 ? 'Ask about a price…' : 'Final price reached'}
+            enterKeyHint="send"
+            className="min-w-0 flex-1 rounded-full border border-hairline px-4 py-2.5
+                       text-base outline-none focus:border-accent"
+          />
+          <button
+            type="submit"
+            disabled={sending || !draft.trim()}
+            className="shrink-0 rounded-full bg-accent px-4 py-2.5 text-sm font-semibold
+                       text-white disabled:opacity-40"
+          >
+            Send
+          </button>
+        </div>
+      </form>
+    </div>
   )
 }
