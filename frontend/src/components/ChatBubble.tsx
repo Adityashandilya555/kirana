@@ -1,5 +1,22 @@
 import type { ReactNode } from 'react'
 
+/**
+ * The system prompt says "never use markdown" and the model mostly obeys, but
+ * gpt-oss still reaches for **bold** around a rupee figure often enough that a
+ * shopper would see literal asterisks around the price -- the one number on
+ * screen that has to look right. Stripping is more reliable than asking again.
+ *
+ * Deliberately not a markdown renderer: this is a shopkeeper's chat message,
+ * and the correct output is plain text. Only emphasis markers are removed.
+ */
+export function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/(^|\s)\*(?!\s)(.+?)(?<!\s)\*/g, '$1$2')
+    .replace(/(^|\s)_(?!\s)(.+?)(?<!\s)_/g, '$1$2')
+    .replace(/`(.+?)`/g, '$1')
+}
+
 export default function ChatBubble({
   role,
   children,
@@ -25,7 +42,7 @@ export default function ChatBubble({
             : 'rounded-bl-sm border border-hairline bg-white text-ink',
         ].join(' ')}
       >
-        {children}
+        {typeof children === 'string' && !mine ? stripMarkdown(children) : children}
       </div>
     </div>
   )

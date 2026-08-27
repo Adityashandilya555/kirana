@@ -14,7 +14,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import campaigns, chat, health, session, verify
+from app.api.routes import (
+    campaigns,
+    chat,
+    health,
+    payments,
+    session,
+    verify,
+    webhooks,
+)
 from app.core import db as dbmod
 from app.core.config import settings
 
@@ -61,6 +69,8 @@ app.include_router(campaigns.router)
 app.include_router(session.router)
 app.include_router(chat.router)
 app.include_router(verify.router)
+app.include_router(payments.router)
+app.include_router(webhooks.router)
 
 
 @app.get("/")

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import ChatBubble, { TypingBubble } from '../components/ChatBubble'
 import OfferCard from '../components/OfferCard'
 import { ApiError, apiPost } from '../lib/api'
 import type { ChatReply, Offer, SessionPayload, Turn } from '../lib/api'
+import { openCheckout, pollUntilSettled } from '../lib/razorpay'
+import type { AcceptedOrder } from '../lib/razorpay'
 
 /**
  * The customer's whole experience: scan a sticker, land here, haggle.
@@ -29,6 +31,8 @@ export default function SlotPage() {
   const [sending, setSending] = useState(false)
   const [fatal, setFatal] = useState<{ code: string; message: string } | null>(null)
   const [manual, setManual] = useState('')
+  const [paying, setPaying] = useState(false)
+  const navigate = useNavigate()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
@@ -84,12 +88,82 @@ export default function SlotPage() {
     }
   }
 
+  /**
+   * Accept → checkout → settle → redemption screen.
+   *
+   * Every exit is handled, not just the happy one: a dismissed sheet and a
+   * failed card both release the reservation, or the discount stays held for
+   * the rest of the demo. If the checkout handler succeeds but `confirm` does
+   * not come back (a dropped callback), polling takes over — the webhook and
+   * the poll both settle through the same plpgsql function, so whichever wins
+   * produces the same row.
+   */
+  async function pay() {
+    if (!offer || !session || paying) return
+    setPaying(true)
+    const note = (content: string) =>
+      setTurns((t) => [...t, { role: 'system', content }])
+    try {
+      const order = await apiPost<AcceptedOrder>(
+        `/api/v1/sessions/${session.session_id}/accept`,
+        { sku: offer.sku, qty: offer.qty, discount_bps: offer.granted_bps },
+      )
+
+      if (order.stub || !order.key_id) {
+        note('Payments are not switched on for this shop yet.')
+        return
+      }
+
+      const outcome = await openCheckout(order, session.merchant.name)
+
+      if ('dismissed' in outcome) {
+        await apiPost(`/api/v1/payments/${order.order_id}/release`, {}).catch(() => {})
+        note('Checkout closed. Your offer is still open.')
+        return
+      }
+      if ('failed' in outcome) {
+        await apiPost(`/api/v1/payments/${order.order_id}/release`, {}).catch(() => {})
+        note(`${outcome.failed} Your offer is still open.`)
+        return
+      }
+
+      let settled: Record<string, unknown> | null = null
+      try {
+        settled = await apiPost<Record<string, unknown>>('/api/v1/payments/confirm', {
+          order_id: outcome.order_id,
+          payment_id: outcome.payment_id,
+          signature: outcome.signature,
+        })
+      } catch {
+        note('Payment received — confirming with the shop…')
+        settled = await pollUntilSettled(order.order_id)
+      }
+
+      const token = settled?.redemption_token as string | undefined
+      if (token) navigate(`/r/${token}`)
+      else note('Paid, but the receipt is taking a moment. Do not pay again.')
+    } catch (e) {
+      note(
+        e instanceof ApiError
+          ? e.message
+          : 'Could not open checkout. Please try again.',
+      )
+    } finally {
+      setPaying(false)
+    }
+  }
+
   // -- the code is not one of ours -----------------------------------------
   if (fatal) {
+    const used = fatal.code === 'SLOT_NOT_OPEN'
     return (
       <main className="mx-auto flex h-dvh max-w-md flex-col justify-center gap-4 p-6">
         <h1 className="text-lg font-semibold text-ink">
-          {fatal.code === 'NETWORK' ? 'No connection' : 'That code did not work'}
+          {fatal.code === 'NETWORK'
+            ? 'No connection'
+            : used
+              ? 'This code has been used'
+              : 'Check that code'}
         </h1>
         <p className="text-sm leading-relaxed text-ink-soft">{fatal.message}</p>
         <form
@@ -117,9 +191,13 @@ export default function SlotPage() {
             Go
           </button>
         </form>
-        {/* A structured error rather than a network failure is itself
-            evidence the deep link, CORS and the backend are all healthy. */}
-        <p className="text-xs text-ink-soft">
+        <a href="/" className="text-sm text-accent underline underline-offset-2">
+          Back to the start
+        </a>
+        {/* A structured error rather than a network failure is itself evidence
+            the deep link, CORS and the backend are all healthy -- useful when
+            debugging from the phone, so it stays, just quietly. */}
+        <p className="text-[11px] text-ink-soft/70">
           Reached the shop’s server ({fatal.code}).
         </p>
       </main>
@@ -163,7 +241,12 @@ export default function SlotPage() {
         {sending && <TypingBubble />}
         {offer && (
           <div className="pt-1">
-            <OfferCard offer={offer} itemName={itemName} />
+            <OfferCard
+              offer={offer}
+              itemName={itemName}
+              onAccept={() => void pay()}
+              accepting={paying}
+            />
           </div>
         )}
         <div ref={endRef} />
