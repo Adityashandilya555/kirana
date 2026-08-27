@@ -7,6 +7,19 @@
   --color-accent: #3a3f8f;
   --color-pass: #17703f;
   --color-fail: #a82018;
+
+  /* Console additions. The customer surfaces are white cards on white; the
+     merchant console is dense data and needs a ground to sit cards on. */
+  --color-canvas: #f5f6f9;
+  --color-surface: #ffffff;
+  --color-sunk: #eceef3;
+  --color-warn: #8a5a00;
+  --color-accent-soft: #eceef8;
+  --color-pass-soft: #e7f2ec;
+  --color-fail-soft: #fbeceb;
+  --color-warn-soft: #fdf3e2;
+
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 html, body, #root { height: 100%; margin: 0; }
@@ -14,6 +27,25 @@ html, body, #root { height: 100%; margin: 0; }
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Digits that sit in columns must line up, everywhere they appear. */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* The console is projected. Anything that encodes an outcome has to be
+   legible from across a room by shape as well as colour. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 /*

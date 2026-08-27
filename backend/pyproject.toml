@@ -17,6 +17,11 @@ dependencies = [
     "langchain-openai>=0.2",
     "structlog>=24.4",
     "asyncpg>=0.31.0",
+    # Excel import for the merchant catalog. openpyxl rather than pandas:
+    # pandas pulls numpy and ~50MB into a container that otherwise builds
+    # in seconds, to read a six-row spreadsheet.
+    "openpyxl>=3.1",
+    "python-multipart>=0.0.9",
 ]
 
 [dependency-groups]

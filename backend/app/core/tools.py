@@ -302,7 +302,7 @@ SYSTEM_PROMPT = """You are the shopkeeper's assistant at {store}, {store_line}.
 You help one shopper who has scanned a discount code on a shelf. Be warm and
 brief -- two or three sentences, the register of a friendly Indian kirana
 owner. Plain English with the odd "ji" is fine. Never use markdown.
-
+{scope}
 The shelf today:
 {catalog}
 
@@ -325,11 +325,45 @@ Discounts are in basis points: 100 bps = 1%, 1200 bps = 12%.
 """
 
 
-def render_system_prompt(store: str, store_line: str, catalog: list[CatalogItem]) -> str:
+def render_system_prompt(
+    store: str,
+    store_line: str,
+    catalog: list[CatalogItem],
+    scope_note: str = "",
+) -> str:
     """Seed the catalog into the prompt so list_catalog/find_item are usually
-    skippable -- every avoided round trip is ~2-4s off the stage clock."""
+    skippable -- every avoided round trip is ~2-4s off the stage clock.
+
+    `scope_note` describes a bound sticker in words. The catalog passed here is
+    ALREADY filtered to the slot's scope, so this note changes nothing about
+    what the model can do -- it only stops the assistant sounding oddly narrow.
+    Without it, a shopper on a tea sticker who asks about rice gets "I only
+    have tea", which reads like a broken shop rather than a shelf offer.
+    """
     lines = "\n".join(
         f"  - {c.name} ({c.sku}), per {c.unit}: {_rupees(c.price_paise)}"
         for c in catalog
     )
-    return SYSTEM_PROMPT.format(store=store, store_line=store_line, catalog=lines)
+    scope = f"\n{scope_note}\n" if scope_note else ""
+    return SYSTEM_PROMPT.format(
+        store=store, store_line=store_line, catalog=lines, scope=scope
+    )
+
+
+def scope_note(slot: dict[str, Any], catalog: list[CatalogItem]) -> str:
+    """One sentence telling the assistant what this particular sticker covers."""
+    if slot.get("bound_sku"):
+        name = next((c.name for c in catalog if c.sku == slot["bound_sku"]), slot["bound_sku"])
+        return (
+            f"This discount code is for one product only: {name}. If the shopper "
+            f"asks about anything else, say warmly that this code is just for "
+            f"{name} and the rest is at the usual price."
+        )
+    if slot.get("shelf_name"):
+        return (
+            f"This discount code covers the \"{slot['shelf_name']}\" shelf, listed "
+            f"below. If the shopper asks about something not on it, say warmly "
+            f"that this code covers the {slot['shelf_name']} shelf and the rest is "
+            f"at the usual price."
+        )
+    return ""

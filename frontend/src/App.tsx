@@ -1,30 +1,38 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import LandingPage from './pages/LandingPage'
-import MerchantConsole from './pages/MerchantConsole'
 import RedemptionPage from './pages/RedemptionPage'
 import SlotPage from './pages/SlotPage'
 import VerifyPage from './pages/VerifyPage'
+import CampaignDetailPage from './pages/merchant/CampaignDetailPage'
+import CampaignsPage from './pages/merchant/CampaignsPage'
+import CatalogPage from './pages/merchant/CatalogPage'
+import NewCampaignPage from './pages/merchant/NewCampaignPage'
+import ShelvesPage from './pages/merchant/ShelvesPage'
 
 export default function App() {
   return (
     <Routes>
-      {/* The front door. Previously this redirected to /s/PHASE0TEST, a Phase 0
-          placeholder that is not a real slot -- so the bare domain rendered an
-          error screen. */}
+      {/* The front door. */}
       <Route path="/" element={<LandingPage />} />
-      {/* The printed QR deep-links here. Without the vercel.json rewrite
-          this path 404s on a cold load, which is the single most likely
-          way this demo fails in public. */}
+
+      {/* Customer, mobile. The printed QR deep-links to /s/<token>; without the
+          vercel.json rewrite this 404s on a cold load, which is the single most
+          likely way this fails in public. */}
       <Route path="/s/:token" element={<SlotPage />} />
-      {/* The customer's screen after paying: the QR the merchant scans, plus
-          an independent browser-side proof check. Reads, never burns. */}
       <Route path="/r/:token" element={<RedemptionPage />} />
-      {/* The counter. First scan green, every later scan red. */}
+
+      {/* Counter. First scan green, every later scan red. */}
       <Route path="/verify" element={<VerifyPage />} />
-      {/* Projected, never mirrored from the phone: Android payment apps set
-          FLAG_SECURE and screen-share as a black rectangle. */}
-      <Route path="/merchant/:campaignId" element={<MerchantConsole />} />
-      <Route path="/merchant" element={<MerchantConsole />} />
+
+      {/* Shopkeeper console, desktop. Static segments are listed before the
+          dynamic one; React Router ranks by specificity, so /merchant/catalog
+          cannot be swallowed by /merchant/:campaignId. */}
+      <Route path="/merchant" element={<CampaignsPage />} />
+      <Route path="/merchant/catalog" element={<CatalogPage />} />
+      <Route path="/merchant/shelves" element={<ShelvesPage />} />
+      <Route path="/merchant/new" element={<NewCampaignPage />} />
+      <Route path="/merchant/:campaignId" element={<CampaignDetailPage />} />
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

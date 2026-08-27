@@ -22,7 +22,12 @@ from app.core import agent as agentmod
 from app.core import bounds, sanitize
 from app.core.codes import CLAMPED_CODES, BoundsCode, DecisionKind
 from app.core.db import DbBackend
-from app.core.tools import CatalogItem, OfferContext, render_system_prompt
+from app.core.tools import (
+    CatalogItem,
+    OfferContext,
+    render_system_prompt,
+    scope_note,
+)
 from app.services import decision_log
 
 log = logging.getLogger("kirana.chat")
@@ -160,7 +165,8 @@ async def chat_turn(db: DbBackend, session_id: str, message: str) -> dict[str, A
     result = await agentmod.run_agent(
         oc,
         system_prompt=render_system_prompt(
-            ctx["merchant"]["name"], ctx["merchant"]["store_line"], oc.catalog
+            ctx["merchant"]["name"], ctx["merchant"]["store_line"], oc.catalog,
+            scope_note(slot, oc.catalog),
         ),
         transcript=ctx.get("transcript") or [],
         user_message=screened.text,

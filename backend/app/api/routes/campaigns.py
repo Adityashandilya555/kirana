@@ -24,6 +24,18 @@ class CreateCampaign(BaseModel):
     max_turns: int = Field(default=6, ge=1, le=20)
     slot_count: int = Field(default=24, ge=1, le=512)
     merchant_id: str = DEMO_MERCHANT_ID
+    #: open  = any product · product = one sku per sticker · shelf = a curated set
+    slot_binding: str = Field(default="open", pattern="^(open|product|shelf)$")
+
+
+class CommitBody(BaseModel):
+    """What each sticker is scoped to, distributed round-robin across the sheet.
+
+    Ignored when the campaign's binding is 'open'. For 'product' these are
+    skus; for 'shelf' they are shelf ids.
+    """
+
+    targets: list[str] = Field(default_factory=list)
 
 
 def _rpc_http(exc: RpcError) -> HTTPException:
@@ -52,16 +64,41 @@ async def create_campaign(body: CreateCampaign, db: DbDep, _: MerchantKey) -> di
             margin_floor_bps=body.margin_floor_bps,
             max_turns=body.max_turns,
             slot_count=body.slot_count,
+            slot_binding=body.slot_binding,
         )
     except RpcError as exc:
         raise _rpc_http(exc) from exc
 
 
 @router.post("/campaigns/{campaign_id}/commit")
-async def commit_campaign(campaign_id: str, db: DbDep, _: MerchantKey) -> dict:
+async def commit_campaign(
+    campaign_id: str, db: DbDep, _: MerchantKey, body: CommitBody | None = None,
+) -> dict:
     """Irreversible. After this the ceilings cannot move without the root moving."""
+    campaign = await db.rpc("get_campaign", {"p_campaign_id": campaign_id})
+    if campaign is None:
+        raise HTTPException(status_code=404,
+                            detail={"code": "CAMPAIGN_NOT_FOUND", "message": "No such campaign."})
+    binding = campaign.get("slot_binding", "open")
+    targets = list((body.targets if body else []) or [])
+
+    if binding != "open" and not targets:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "NO_TARGETS",
+                "message": (
+                    "This campaign binds each sticker to a "
+                    + ("product" if binding == "product" else "shelf")
+                    + ", so it needs at least one to bind to."
+                ),
+            },
+        )
+
     try:
-        result = await campaign_service.commit_campaign(db, campaign_id)
+        result = await campaign_service.commit_campaign(
+            db, campaign_id, binding=binding, targets=targets
+        )
     except RpcError as exc:
         raise _rpc_http(exc) from exc
     except ValueError as exc:
@@ -73,6 +110,14 @@ async def commit_campaign(campaign_id: str, db: DbDep, _: MerchantKey) -> dict:
         "qr_sheet_url": f"/api/v1/campaigns/{campaign_id}/qr-sheet",
         "slots_created": result["commit"]["slots"],
     }
+
+
+@router.get("/campaigns")
+async def list_campaigns(
+    db: DbDep, _: MerchantKey, merchant_id: str = DEMO_MERCHANT_ID,
+) -> list[dict]:
+    """Newest first. The console's home screen."""
+    return await db.rpc("list_merchant_campaigns", {"p_merchant_id": merchant_id}) or []
 
 
 @router.get("/campaigns/{campaign_id}")
