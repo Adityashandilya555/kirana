@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      interactive-widget=resizes-content is load-bearing, not cosmetic.
+      Since Chrome 108 the Android soft keyboard resizes only the VISUAL
+      viewport by default, so 100dvh does not shrink and a position:fixed
+      composer ends up hidden behind the keyboard. This opts into resizing
+      the layout viewport so viewport units actually respond.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <title>Kirana Agent</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

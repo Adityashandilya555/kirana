@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #15171e;
+  --color-ink-soft: #565d6d;
+  --color-hairline: #d9dde6;
+  --color-accent: #3a3f8f;
+  --color-pass: #17703f;
+  --color-fail: #a82018;
+}
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+  Keyboard-safe chat shell. Flexbox, never position:fixed.
+  .chat-scroll needs min-height:0 -- flex items default to min-height:auto
+  and will refuse to shrink below their content, which breaks the scroll.
+*/
+.chat-shell { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+.chat-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain; /* stops pull-to-refresh reloading mid-demo */
+  -webkit-overflow-scrolling: touch;
+}
+.chat-composer { flex: 0 0 auto; padding-bottom: env(safe-area-inset-bottom); }
