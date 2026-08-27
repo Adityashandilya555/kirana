@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import DbDep
-from app.core import bounds
+from app.core import bounds, rzp
 from app.services import payment_service
 from app.services.payment_service import (
     BAD_REQUEST_CODES,
@@ -49,6 +49,20 @@ class ConfirmBody(BaseModel):
     signature: str | None = None
 
 
+#: Raised when Razorpay is unconfigured and stub mode is not permitted --
+#: which is exactly the state of production until the keys are set. Without
+#: this, tapping Pay returns a 500 and the customer sees a crash instead of a
+#: sentence.
+NOT_CONFIGURED = HTTPException(
+    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+    detail={
+        "code": "PAYMENTS_NOT_CONFIGURED",
+        "message": "Card payment is not switched on for this shop yet. "
+                   "Your offer is still open -- please pay at the counter.",
+    },
+)
+
+
 def _http(exc: PaymentError) -> HTTPException:
     code = (
         status.HTTP_404_NOT_FOUND if exc.code in NOT_FOUND_CODES
@@ -67,6 +81,9 @@ async def accept(session_id: str, body: AcceptBody, db: DbDep) -> dict:
         return await payment_service.accept(
             db, session_id, body.sku, body.qty, body.discount_bps
         )
+    except rzp.PaymentConfigError as exc:
+        log.warning("accept refused: razorpay not configured")
+        raise NOT_CONFIGURED from exc
     except PaymentError as exc:
         raise _http(exc) from exc
 
@@ -80,11 +97,14 @@ async def confirm(body: ConfirmBody, db: DbDep) -> dict:
     rejected before settlement -- this is the one place a client-supplied
     payment id could otherwise be used to settle an order that was never paid.
     """
-    from app.core import rzp
+    try:
+        verified = rzp.verify_checkout_signature(
+            body.order_id, body.payment_id, body.signature or ""
+        )
+    except rzp.PaymentConfigError as exc:
+        raise NOT_CONFIGURED from exc
 
-    if not rzp.verify_checkout_signature(
-        body.order_id, body.payment_id, body.signature or ""
-    ):
+    if not verified:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "BAD_SIGNATURE",
