@@ -1,0 +1,33 @@
+# What `railway up` must not upload.
+#
+# The CLI sends the working directory, not the git tree, so anything sitting on
+# disk goes with it unless excluded. Without this the upload is 221 MB of local
+# build artefacts to deploy roughly 2 MB of source -- and a virtualenv built on
+# macOS is actively harmful in a Linux container if it were ever unpacked there.
+#
+# Railway applies the service's root directory (backend) to what arrives, so
+# run `railway up` from the repository root, not from backend/.
+
+node_modules/
+**/node_modules/
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+dist/
+**/dist/
+.vite/
+**/.vite/
+
+.git/
+.claude/
+.vercel/
+**/.vercel/
+
+# Secrets live in Railway's own variables, never in an upload.
+.env
+**/.env
+.env.local
+**/.env.local
