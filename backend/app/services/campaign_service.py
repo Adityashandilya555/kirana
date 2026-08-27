@@ -40,6 +40,11 @@ class SlotSpec:
     salt_hex: str
     ceiling_bps: int
     leaf_hash: str
+    #: What this sticker is scoped to. Neither is part of the leaf hash: the
+    #: commitment is about the ceiling, and folding scope into the preimage
+    #: would change every hash in the system. See sql/009_shelves.sql.
+    bound_sku: str | None = None
+    shelf_id: str | None = None
 
     def to_row(self, proof: list[merkle.ProofStep]) -> dict[str, Any]:
         return {
@@ -49,7 +54,38 @@ class SlotSpec:
             "ceiling_bps": self.ceiling_bps,
             "leaf_hash": self.leaf_hash,
             "proof": proof,
+            "bound_sku": self.bound_sku,
+            "shelf_id": self.shelf_id,
         }
+
+
+def plan_bindings(
+    slot_count: int, binding: str, targets: list[str] | None
+) -> list[tuple[str | None, str | None]]:
+    """Assign each sticker its scope, as (bound_sku, shelf_id).
+
+    Round-robin rather than contiguous blocks. A sheet is printed in reading
+    order and then cut up, so contiguous assignment would put every tea sticker
+    on one strip of paper -- fine until the strip is lost and the tea shelf has
+    no codes at all. Interleaving spreads that risk.
+    """
+    if binding == "open" or not targets:
+        return [(None, None)] * slot_count
+
+    clean = [t for t in (x.strip() for x in targets) if t]
+    if not clean:
+        return [(None, None)] * slot_count
+
+    out: list[tuple[str | None, str | None]] = []
+    for i in range(slot_count):
+        target = clean[i % len(clean)]
+        if binding == "product":
+            out.append((target.upper(), None))
+        elif binding == "shelf":
+            out.append((None, target))
+        else:
+            out.append((None, None))
+    return out
 
 
 def plan_ceilings(
@@ -78,16 +114,22 @@ def plan_ceilings(
 
 
 def build_slot_specs(
-    campaign_id: str, slot_count: int, max_discount_bps: int
+    campaign_id: str,
+    slot_count: int,
+    max_discount_bps: int,
+    binding: str = "open",
+    targets: list[str] | None = None,
 ) -> list[SlotSpec]:
     specs: list[SlotSpec] = []
     seen: set[str] = set()
+    scopes = plan_bindings(slot_count, binding, targets)
     for index, ceiling in enumerate(plan_ceilings(slot_count, max_discount_bps)):
         token = ids.new_slot_token()
         while token in seen:  # unique index would catch it; cheaper to not collide
             token = ids.new_slot_token()
         seen.add(token)
         salt = ids.new_salt_hex()
+        bound_sku, shelf_id = scopes[index]
         specs.append(
             SlotSpec(
                 leaf_index=index,
@@ -97,6 +139,8 @@ def build_slot_specs(
                 leaf_hash=merkle.slot_leaf_hash(
                     campaign_id, index, token, ceiling, salt
                 ),
+                bound_sku=bound_sku,
+                shelf_id=shelf_id,
             )
         )
     return specs
@@ -112,6 +156,7 @@ async def create_campaign(
     margin_floor_bps: int,
     max_turns: int,
     slot_count: int,
+    slot_binding: str = "open",
 ) -> dict[str, Any]:
     return await db.rpc(
         "create_campaign",
@@ -123,18 +168,23 @@ async def create_campaign(
             "p_margin_floor_bps": margin_floor_bps,
             "p_max_turns": max_turns,
             "p_slot_count": slot_count,
+            "p_slot_binding": slot_binding,
         },
     )
 
 
-async def commit_campaign(db: DbBackend, campaign_id: str) -> dict[str, Any]:
+async def commit_campaign(
+    db: DbBackend, campaign_id: str,
+    binding: str = "open", targets: list[str] | None = None,
+) -> dict[str, Any]:
     """Irreversible. Generates slots, freezes the root, stores every proof."""
     campaign = await db.rpc("get_campaign", {"p_campaign_id": campaign_id})
     if campaign is None:
         raise ValueError("CAMPAIGN_NOT_FOUND")
 
     specs = build_slot_specs(
-        campaign_id, campaign["slot_count"], campaign["max_discount_bps"]
+        campaign_id, campaign["slot_count"], campaign["max_discount_bps"],
+        binding=binding, targets=targets,
     )
     tree = merkle.build_tree([s.leaf_hash for s in specs])
     proofs = tree.all_proofs()
