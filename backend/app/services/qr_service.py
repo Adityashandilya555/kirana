@@ -14,6 +14,7 @@ are already upper-case Crockford base32, so nothing is lost.
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,26 @@ def qr_svg(payload: str, scale: int = 4) -> str:
     # otherwise render dark modules on a dark ground -- unscannable, and worse,
     # it looks fine until someone actually tries to scan it.
     return qr.svg_inline(scale=scale, border=2, dark="#000000", light="#ffffff")
+
+
+def qr_svg_standalone(payload: str, scale: int = 6) -> str:
+    """A complete SVG document, for serving as image/svg+xml.
+
+    NOT svg_inline(). That variant omits the xmlns, which is correct when the
+    markup is pasted inside an HTML document and inherits the namespace -- and
+    fatal when the same bytes are served as a standalone file. A browser
+    parses an image/svg+xml response as XML, finds no namespace, and renders a
+    broken-image icon rather than an error, so the failure is silent and looks
+    like a dead endpoint.
+
+    That is exactly what happened to the customer's redemption QR: the route
+    returned 200 with a valid-looking body and the phone showed a broken image.
+    """
+    qr = segno.make_qr(payload, error="m")
+    buf = io.BytesIO()
+    qr.save(buf, kind="svg", scale=scale, border=2,
+            dark="#000000", light="#ffffff", xmldecl=False)
+    return buf.getvalue().decode("utf-8")
 
 
 def render_sheet(campaign: dict[str, Any], slots: list[dict[str, Any]], base_url: str) -> str:
