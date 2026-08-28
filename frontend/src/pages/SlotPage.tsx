@@ -192,12 +192,17 @@ export default function SlotPage() {
           />
           <button
             type="submit"
-            className="rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white"
+            className="rounded-xl bg-ink px-4 py-2.5 text-half font-semibold text-white hover:bg-sidebar-hover"
           >
             Go
           </button>
         </form>
-        <a href="/" className="text-sm text-accent underline underline-offset-2">
+        {/* ink-soft, not accent: turquoise on the mint canvas is ~1.7:1 and
+            unreadable. The accent only carries type on the dark sidebar. */}
+        <a
+          href="/"
+          className="text-half text-ink-soft underline underline-offset-2 hover:text-ink"
+        >
           Back to the start
         </a>
         {/* A structured error rather than a network failure is itself evidence
@@ -223,10 +228,12 @@ export default function SlotPage() {
   const turnsLeft = (session.campaign.max_turns ?? 6) - turns.filter((t) => t.role === 'user').length
 
   return (
-    <div className="chat-shell mx-auto max-w-md bg-slate-50">
-      <header className="flex-none border-b border-hairline bg-white px-4 py-3">
-        <h1 className="text-sm font-semibold text-ink">{session.merchant.name}</h1>
-        <p className="text-xs text-ink-soft">
+    <div className="chat-shell mx-auto max-w-md bg-surface">
+      <header className="flex-none border-b border-hairline bg-card px-4 py-3">
+        <h1 className="font-display text-base font-medium leading-tight text-ink">
+          {session.merchant.name}
+        </h1>
+        <p className="mt-0.5 text-tiny text-ink-soft">
           {session.merchant.store_line} · code{' '}
           <span className="font-mono">{session.slot.slot_token}</span>
         </p>
@@ -259,7 +266,7 @@ export default function SlotPage() {
       </div>
 
       <form
-        className="chat-composer border-t border-hairline bg-white px-3 py-2.5"
+        className="chat-composer border-t border-hairline bg-card px-3 py-2.5"
         onSubmit={(e) => {
           e.preventDefault()
           void send()
@@ -271,14 +278,20 @@ export default function SlotPage() {
             onChange={(e) => setDraft(e.target.value)}
             placeholder={turnsLeft > 0 ? 'Ask about a price…' : 'Final price reached'}
             enterKeyHint="send"
-            className="min-w-0 flex-1 rounded-full border border-hairline px-4 py-2.5
-                       text-base outline-none focus:border-accent"
+            /* text-base, not smaller: iOS Safari zooms the viewport on focus
+               for anything under 16px, which throws the composer off screen. */
+            className="min-w-0 flex-1 rounded-full border-[1.5px] border-hairline bg-surface
+                       px-4 py-2.5 text-base outline-none transition-colors
+                       focus:border-accent-strong"
           />
           <button
             type="submit"
             disabled={sending || !draft.trim()}
-            className="shrink-0 rounded-full bg-accent px-4 py-2.5 text-sm font-semibold
-                       text-white disabled:opacity-40"
+            /* Ink, not accent. Turquoise behind white text is ~1.6:1 — the
+               accent is a fill colour and cannot carry a label. */
+            className="shrink-0 rounded-full bg-ink px-5 py-2.5 text-half font-semibold
+                       text-white transition-colors hover:bg-sidebar-hover
+                       disabled:opacity-40"
           >
             Send
           </button>

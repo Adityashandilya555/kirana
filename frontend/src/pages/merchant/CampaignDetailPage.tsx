@@ -244,7 +244,7 @@ export default function CampaignDetailPage() {
             href={qrSheetUrl(campaignId)}
             target="_blank"
             rel="noreferrer"
-            className="rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-white hover:opacity-90"
+            className="rounded-lg bg-ink px-3.5 py-2 text-half font-medium text-white hover:bg-sidebar-hover"
           >
             Print stickers
           </a>
@@ -319,7 +319,7 @@ export default function CampaignDetailPage() {
             type="button"
             onClick={() => setFilter(f)}
             className={`rounded-lg px-3 py-1.5 text-sm capitalize transition-colors ${
-              filter === f ? 'bg-accent text-white' : 'border border-hairline bg-surface hover:bg-sunk'
+              filter === f ? 'bg-ink text-white' : 'border border-hairline bg-surface hover:bg-sunk'
             }`}
           >
             {f}

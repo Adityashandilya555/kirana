@@ -70,7 +70,7 @@ export default function CampaignsPage() {
                 <div className="min-w-0">
                   <Link
                     to={`/merchant/${c.id}`}
-                    className="block truncate font-medium hover:text-accent"
+                    className="block truncate font-display text-lg font-medium underline-offset-4 hover:underline"
                   >
                     {c.name}
                   </Link>
