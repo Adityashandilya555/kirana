@@ -65,13 +65,13 @@ export default function OfferCard({
 
       {open && (
         <dl className="mt-3 space-y-1 border-t border-hairline pt-3 text-xs text-ink-soft">
+          {/* Deliberately no "most this code allows" row. That number is the
+              slot's committed ceiling, and showing it ends the negotiation:
+              the shopper stops haggling and asks for it. Asked-vs-granted plus
+              the rule that bound still shows the gate doing its work. */}
           <div className="flex justify-between gap-4">
             <dt>agent asked for</dt>
             <dd className="font-mono">{pct(offer.proposed_bps)}</dd>
-          </div>
-          <div className="flex justify-between gap-4">
-            <dt>most this code allows</dt>
-            <dd className="font-mono">{pct(offer.max_allowed_bps)}</dd>
           </div>
           <div className="flex justify-between gap-4">
             <dt>granted</dt>

@@ -193,8 +193,19 @@ async def status(db: DbBackend, order_id: str) -> dict[str, Any]:
     try:
         payments = rzp.order_payments(order_id)
     except Exception as exc:  # noqa: BLE001 - polling must never 500
-        log.warning("order.payments failed for %s: %s", order_id, exc)
-        return {**(row or {}), "settled": False, "source": "db", "poll_error": str(exc)[:200]}
+        # source="upstream_error", not "db". Saying "db" claimed our database
+        # had answered when in fact Razorpay had failed, which made a revoked
+        # API key look identical to "not paid yet": the phone polls forever and
+        # the only trace is one warning line. Log with a traceback and say what
+        # actually happened; the customer still gets a 200 so polling survives
+        # a transient blip.
+        log.exception("razorpay order.payments failed for %s", order_id)
+        return {
+            **(row or {}),
+            "settled": False,
+            "source": "upstream_error",
+            "poll_error": "Could not reach the payment provider.",
+        }
 
     captured = next((p for p in payments if p.get("status") == "captured"), None)
     if captured is None:

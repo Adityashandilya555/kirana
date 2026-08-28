@@ -14,7 +14,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -52,25 +60,55 @@ class SimulateBody(BaseModel):
 
 
 class ItemsBody(BaseModel):
-    """Manual add/edit, for the shop with eleven products and no spreadsheet."""
+    """Manual add/edit, for the shop with eleven products and no spreadsheet.
 
-    items: list[dict[str, Any]]
+    max_length matches the spreadsheet path's MAX_ROWS. Without it this route
+    was the same denial-of-service as an oversized upload, through a different
+    door -- an unbounded list straight into a single upsert.
+    """
+
+    items: list[dict[str, Any]] = Field(max_length=catalog_service.MAX_ROWS)
     replace: bool = False
     merchant_id: str = DEMO_MERCHANT_ID
 
 
-async def _read_upload(file: UploadFile) -> bytes:
-    blob = await file.read()
+_TOO_LARGE = HTTPException(
+    status_code=413,
+    detail={
+        "code": "FILE_TOO_LARGE",
+        "message": "That file is larger than 4 MB. A price list should be far smaller.",
+    },
+)
+
+
+async def _read_upload(request: Request, file: UploadFile) -> bytes:
+    """Read the upload without ever holding more than the cap in memory.
+
+    The obvious form -- `blob = await file.read()` then check `len(blob)` --
+    checks the size only after the entire body has been materialised, and
+    Starlette applies no default body limit. A 2 GB POST was fully buffered
+    before the 4 MB check ran, so one request could exhaust the container.
+
+    Content-Length is a client-supplied claim, so it is a cheap first refusal
+    and not the real bound; the chunked loop below is what actually holds.
+    """
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES:
+        raise _TOO_LARGE
+
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(64 * 1024):
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise _TOO_LARGE
+        chunks.append(chunk)
+
+    blob = b"".join(chunks)
     if not blob:
         raise HTTPException(
             status_code=400,
             detail={"code": "EMPTY_FILE", "message": "That file is empty."},
-        )
-    if len(blob) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail={"code": "FILE_TOO_LARGE",
-                    "message": "That file is larger than 4 MB. A price list should be far smaller."},
         )
     return blob
 
@@ -121,15 +159,17 @@ async def catalog_template(_: MerchantKey) -> PlainTextResponse:
 
 
 @router.post("/catalog/preview")
-async def preview_catalog(_: MerchantKey, file: UploadFile = File(...)) -> dict:
+async def preview_catalog(
+    request: Request, _: MerchantKey, file: UploadFile = File(...),
+) -> dict:
     """Parse and validate. Writes nothing."""
-    blob = await _read_upload(file)
+    blob = await _read_upload(request, file)
     return _parse_or_400(file.filename or "", blob).public()
 
 
 @router.post("/catalog/import")
 async def import_catalog(
-    db: DbDep, _: MerchantKey,
+    request: Request, db: DbDep, _: MerchantKey,
     file: UploadFile = File(...),
     replace: bool = Form(default=False),
     merchant_id: str = Form(default=DEMO_MERCHANT_ID),
@@ -140,7 +180,7 @@ async def import_catalog(
     one bad line should not stop a shop loading the other two hundred. The
     response says exactly what was skipped and why.
     """
-    blob = await _read_upload(file)
+    blob = await _read_upload(request, file)
     parsed = _parse_or_400(file.filename or "", blob)
 
     if not parsed.valid:

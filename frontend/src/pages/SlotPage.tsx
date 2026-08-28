@@ -117,12 +117,18 @@ export default function SlotPage() {
       const outcome = await openCheckout(order, session.merchant.name)
 
       if ('dismissed' in outcome) {
-        await apiPost(`/api/v1/payments/${order.order_id}/release`, {}).catch(() => {})
+        await apiPost(
+          `/api/v1/payments/${order.order_id}/release?session_id=${encodeURIComponent(session.session_id)}`,
+          {},
+        ).catch(() => {})
         note('Checkout closed. Your offer is still open.')
         return
       }
       if ('failed' in outcome) {
-        await apiPost(`/api/v1/payments/${order.order_id}/release`, {}).catch(() => {})
+        await apiPost(
+          `/api/v1/payments/${order.order_id}/release?session_id=${encodeURIComponent(session.session_id)}`,
+          {},
+        ).catch(() => {})
         note(`${outcome.failed} Your offer is still open.`)
         return
       }
@@ -136,7 +142,7 @@ export default function SlotPage() {
         })
       } catch {
         note('Payment received — confirming with the shop…')
-        settled = await pollUntilSettled(order.order_id)
+        settled = await pollUntilSettled(order.order_id, session.session_id)
       }
 
       const token = settled?.redemption_token as string | undefined

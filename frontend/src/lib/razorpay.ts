@@ -145,6 +145,7 @@ export async function openCheckout(
  */
 export async function pollUntilSettled(
   orderId: string,
+  sessionId: string,
   onTick?: (attempt: number) => void,
 ): Promise<Record<string, unknown> | null> {
   const started = Date.now()
@@ -154,7 +155,10 @@ export async function pollUntilSettled(
     onTick?.(attempt)
     try {
       const res = await apiGet<Record<string, unknown>>(
-        `/api/v1/payments/${orderId}/status`,
+        // session_id proves this order is ours: the order id alone appears in
+        // the checkout sheet and in Razorpay's dashboard, and the response
+        // carries the redemption token.
+        `/api/v1/payments/${orderId}/status?session_id=${encodeURIComponent(sessionId)}`,
       ).catch(() => null)
       if (res && res.settled) return res
     } catch {

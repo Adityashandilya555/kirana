@@ -137,9 +137,28 @@ async def confirm(body: ConfirmBody, db: DbDep) -> dict:
     return settled
 
 
+async def _order_belongs_to_session(db: DbDep, order_id: str, session_id: str) -> bool:
+    """Both routes below act on an order, and the order id alone is not a
+    credential -- it appears in the checkout sheet, in Razorpay's dashboard and
+    in any shared screen. The session id is: it is a uuid handed out only in
+    exchange for a slot token, and it already gates /accept."""
+    row = await db.rpc("get_payment_status", {"p_rzp_order_id": order_id})
+    return bool(row) and str(row.get("session_id") or "") == session_id
+
+
 @router.get("/payments/{order_id}/status")
-async def payment_status(order_id: str, db: DbDep) -> dict:
-    """Polling backup. Safe to call repeatedly; settles at most once."""
+async def payment_status(order_id: str, session_id: str, db: DbDep) -> dict:
+    """Polling backup. Safe to call repeatedly; settles at most once.
+
+    session_id is required. Without it, anyone holding an order id could read
+    back the redemption_token, which ids.py is explicit about being a bearer
+    credential -- whoever shows it claims the discount.
+    """
+    if not await _order_belongs_to_session(db, order_id, session_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "ORDER_NOT_FOUND", "message": "No such order."},
+        )
     try:
         return await payment_service.status(db, order_id)
     except PaymentError as exc:
@@ -147,12 +166,24 @@ async def payment_status(order_id: str, db: DbDep) -> dict:
 
 
 @router.post("/payments/{order_id}/release")
-async def release(order_id: str, db: DbDep) -> dict:
+async def release(order_id: str, session_id: str, db: DbDep) -> dict:
     """Called when the customer dismisses checkout or the payment fails.
 
     Returns the reservation to the budget so an abandoned checkout does not
     quietly hold discount for the rest of the demo.
+
+    session_id is required, and this is the sharper of the two. release() nulls
+    sessions.rzp_order_id, and settle_payment finds its session BY that column
+    -- so releasing someone else's in-flight order means their payment captures
+    at Razorpay and then settles nowhere: money taken, no discount applied, no
+    redemption token minted. The webhook logs that as ORDER_NOT_FOUND at INFO,
+    indistinguishable from the benign race it was written for.
     """
+    if not await _order_belongs_to_session(db, order_id, session_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "ORDER_NOT_FOUND", "message": "No such order."},
+        )
     try:
         return await payment_service.release(db, order_id, "customer dismissed checkout")
     except PaymentError as exc:

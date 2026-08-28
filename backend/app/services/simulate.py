@@ -101,15 +101,36 @@ def simulate(
         tiers[c] = tiers.get(c, 0) + 1
 
     # Budget reach: the worst case is every sticker redeemed at its ceiling on
-    # the most expensive item that can actually take that ceiling. Cheap
-    # optimism here would let a shop print a sheet its budget cannot honour.
+    # whichever item costs the shop most at that ceiling. Cheap optimism here
+    # would let a shop print a sheet its budget cannot honour.
+    #
+    # This used to pair the dearest item's PRICE with a different item's
+    # HEADROOM, which no single sticker can produce -- and because the dearest
+    # item is usually the one with the tightest headroom, the overstatement was
+    # large enough to fire spurious "budget will run out" warnings and train
+    # the shopkeeper to ignore them. The maximum has to be taken over items,
+    # each evaluated whole.
+    #
+    # It also ignored quantity entirely. A slot can be redeemed for up to
+    # MAX_QTY units, so the true exposure per sticker is qty times higher.
     discountable = [i for i in items if i["discountable"]]
-    dearest = max((i["price_paise"] for i in discountable), default=0)
-    worst_case_per_slot = [
-        dearest * min(c, max((i["max_discount_bps"] for i in discountable), default=0))
-        // 10_000
-        for c in ceilings
-    ]
+
+    def worst_spend_at(ceiling_bps: int) -> int:
+        """Most the shop can give away on one sticker capped at `ceiling_bps`."""
+        return max(
+            (
+                i["price_paise"] * bounds.MAX_QTY
+                * min(ceiling_bps, i["max_discount_bps"]) // 10_000
+                for i in discountable
+            ),
+            default=0,
+        )
+
+    worst_case_per_slot = [worst_spend_at(c) for c in ceilings]
+
+    # How many stickers the budget survives if the dearest redemptions land
+    # first. Sorted descending on purpose: the pessimistic order is the useful
+    # one when the question is "when does the budget rule start refusing?"
     running = 0
     slots_before_exhausted = 0
     for spend in sorted(worst_case_per_slot, reverse=True):
@@ -172,10 +193,12 @@ def _warnings(
         out.append({
             "level": "warn",
             "message": (
-                f"If every sticker is redeemed at its ceiling on your dearest "
-                f"item, that is ₹{worst_case / 100:,.2f} against a budget of "
-                f"₹{budget_paise / 100:,.2f}. The budget rule will start "
-                "refusing before the sheet is used up."
+                f"Worst case — every sticker redeemed at its ceiling, on the "
+                f"costliest item, at the maximum {bounds.MAX_QTY} units — is "
+                f"₹{worst_case / 100:,.2f} against a budget of "
+                f"₹{budget_paise / 100:,.2f}. The budget rule would start "
+                "refusing before the sheet is used up. This is a ceiling on "
+                "your exposure, not a forecast."
             ),
         })
 
