@@ -20,15 +20,15 @@ export default function LandingPage() {
       <header>
         <span
           aria-hidden
-          className="mb-5 grid h-11 w-11 place-items-center rounded-xl bg-accent"
+          className="mb-5 grid h-11 w-11 place-items-center rounded-xl bg-accent shadow-card"
         >
           <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
-            <rect x="2" y="3" width="12" height="2.4" rx="1.2" fill="#2d2142" />
-            <rect x="2" y="7" width="9" height="2.4" rx="1.2" fill="#2d2142" opacity="0.7" />
-            <rect x="2" y="11" width="6" height="2.4" rx="1.2" fill="#2d2142" opacity="0.4" />
+            <rect x="2" y="3" width="12" height="2.4" rx="1.2" fill="#ffffff" />
+            <rect x="2" y="7" width="9" height="2.4" rx="1.2" fill="#ffffff" opacity="0.7" />
+            <rect x="2" y="11" width="6" height="2.4" rx="1.2" fill="#ffffff" opacity="0.4" />
           </svg>
         </span>
-        <h1 className="font-display text-[34px] font-medium leading-[1.1] tracking-tight text-ink">
+        <h1 className="font-display text-[34px] font-bold leading-[1.1] tracking-[-0.02em] text-ink">
           Kirana Agent
         </h1>
         <p className="mt-3 text-half leading-relaxed text-ink-soft">
