@@ -1,12 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import MerchantShell, {
-  Button,
-  Card,
-  EmptyState,
-  Money,
-  Pct,
-} from '../../components/MerchantShell'
+import MerchantShell from '../../components/MerchantShell'
+import { Button, Card, EmptyState, Money, Pct } from '../../components/ui'
 import { getCampaigns, qrSheetUrl } from '../../lib/merchant'
 import type { Campaign } from '../../lib/merchant'
 
@@ -53,7 +48,7 @@ export default function CampaignsPage() {
       actions={<Button onClick={() => navigate('/merchant/new')}>New campaign</Button>}
     >
       {error && (
-        <Card className="mb-4 border-fail/40 bg-fail-soft text-sm text-fail">{error}</Card>
+        <Card className="mb-4 border-fail-line bg-fail-bg text-sm text-fail">{error}</Card>
       )}
 
       {campaigns === null && <p className="text-sm text-ink-soft">Loading…</p>}
@@ -87,7 +82,7 @@ export default function CampaignsPage() {
                 </div>
                 <span
                   className={`chip ${
-                    live ? 'text-pass bg-pass-soft' : 'text-ink-soft bg-sunk'
+                    live ? 'text-pass bg-pass-bg' : 'text-ink-soft bg-sunk'
                   }`}
                 >
                   {c.status}

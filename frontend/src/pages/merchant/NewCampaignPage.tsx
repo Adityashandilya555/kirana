@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import MerchantShell, {
-  Button,
-  Card,
-  Field,
-  Money,
-  inputClass,
-} from '../../components/MerchantShell'
+import MerchantShell from '../../components/MerchantShell'
+import { Button, Card, Field, Money, inputClass } from '../../components/ui'
 import {
   commitCampaign,
   createCampaign,
@@ -240,7 +235,7 @@ export default function NewCampaignPage() {
           </Card>
 
           {error && (
-            <Card className="border-fail/40 bg-fail-soft text-sm text-fail">{error}</Card>
+            <Card className="border-fail-line bg-fail-bg text-sm text-fail">{error}</Card>
           )}
 
           <Card className="border-accent/30 bg-accent-soft">
@@ -260,7 +255,7 @@ export default function NewCampaignPage() {
         {/* ------------------------------------------------ simulator -- */}
         <div className="space-y-4">
           {simError && (
-            <Card className="border-warn/40 bg-warn-soft text-sm text-warn">{simError}</Card>
+            <Card className="border-warn-line bg-warn-bg text-sm text-warn">{simError}</Card>
           )}
 
           {sim?.warnings.map((w, i) => (
@@ -268,9 +263,9 @@ export default function NewCampaignPage() {
               key={i}
               className={
                 w.level === 'stop'
-                  ? 'border-fail/40 bg-fail-soft'
+                  ? 'border-fail-line bg-fail-bg'
                   : w.level === 'warn'
-                    ? 'border-warn/40 bg-warn-soft'
+                    ? 'border-warn-line bg-warn-bg'
                     : 'border-accent/30 bg-accent-soft'
               }
             >
@@ -299,7 +294,7 @@ export default function NewCampaignPage() {
                       {sim.items.map((i) => (
                         <tr
                           key={i.sku}
-                          className={`border-t border-hairline ${i.discountable ? '' : 'bg-fail-soft'}`}
+                          className={`border-t border-hairline ${i.discountable ? '' : 'bg-fail-bg'}`}
                         >
                           <td className="px-3 py-2">
                             <span className="block truncate">{i.name}</span>

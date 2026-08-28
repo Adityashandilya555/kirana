@@ -1,49 +1,104 @@
+/* Google Fonts must stay the first statement in this file: a CSS @import is
+   only valid before any other rule, and Tailwind's own import counts. */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
+/*
+  One light theme, deliberately. No dark mode and no prefers-color-scheme
+  handling: every colour below is committed, so the page renders the same on
+  any host ground rather than half-inheriting one.
+
+  The palette is cool throughout -- aubergine, slate, turquoise, mint. There is
+  no warm grey anywhere, and substituting Tailwind's slate/zinc would flatten
+  it.
+
+  The load-bearing constraint: TURQUOISE IS A FILL, NEVER TEXT. #7FDBD3 on
+  white is about 1.6:1, far under the 4.5:1 needed for body copy. So the
+  primary button is ink (about 14:1 with white) and turquoise does selection
+  tints, progress fills and active states. Anything that reads as type takes
+  --color-ink or --color-ink-soft.
+*/
 @theme {
-  --color-ink: #15171e;
-  --color-ink-soft: #565d6d;
-  --color-hairline: #d9dde6;
-  --color-accent: #3a3f8f;
-  --color-pass: #17703f;
-  --color-fail: #a82018;
+  /* --- the four given colours ----------------------------------------- */
+  --color-ink: #2d2142;        /* aubergine: text, sidebar, primary buttons */
+  --color-ink-soft: #43637e;   /* slate: secondary text, table headers      */
+  --color-accent: #7fdbd3;     /* turquoise: fills and tints only           */
+  --color-surface: #defcf1;    /* mint: page canvas, inset wells            */
 
-  /* Console additions. The customer surfaces are white cards on white; the
-     merchant console is dense data and needs a ground to sit cards on. */
-  --color-canvas: #f5f6f9;
-  --color-surface: #ffffff;
-  --color-sunk: #eceef3;
+  /* --- derived, to make those four into a working system --------------- */
+  --color-card: #ffffff;
+  --color-hairline: #c7ddd8;      /* borders: mint pulled toward slate      */
+  --color-sunk: #eef9f4;          /* panels inside white cards              */
+  --color-accent-strong: #4bbfb4; /* turquoise dark enough for a hover fill */
+  --color-accent-soft: #c9f0eb;   /* selection tint                         */
+
+  --color-sidebar-hover: #3d2f58;
+  --color-sidebar-active: #4a3a68;
+  --color-sidebar-line: #3a2c54;
+  --color-sidebar-text: #e8f8f2;
+  --color-sidebar-muted: #9b8fb5;
+
+  /* --- semantic ---------------------------------------------------------
+     Pass leans teal so it sits inside the palette. Fail stays warm on
+     purpose: a refusal is the one thing that must read instantly, and a red
+     that harmonised would be a red nobody noticed. */
+  --color-pass: #0f7b5f;
+  --color-pass-bg: #dcf5ec;
+  --color-pass-line: #8fd4bd;
+  --color-fail: #b3261e;
+  --color-fail-bg: #fce9e7;
+  --color-fail-line: #f0b5b0;
   --color-warn: #8a5a00;
-  --color-accent-soft: #eceef8;
-  --color-pass-soft: #e7f2ec;
-  --color-fail-soft: #fbeceb;
-  --color-warn-soft: #fdf3e2;
+  --color-warn-bg: #fdf3dc;
+  --color-warn-line: #e8cc80;
 
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* --- type -------------------------------------------------------------
+     Three faces with three jobs: Fraunces for headings AND hero numbers,
+     Instrument Sans for interface text, JetBrains Mono for every string a
+     person reads character by character -- sticker codes, redemption tokens,
+     Merkle roots, money in tables. */
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-sans: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Half-point sizes are load-bearing in this design and sit off Tailwind's
+     scale, so they are registered rather than scattered as arbitrary values. */
+  --text-2xs: 0.625rem;    /* 10   */
+  --text-2xs--line-height: 1.4;
+  --text-xxs: 0.6875rem;   /* 11   */
+  --text-xxs--line-height: 1.4;
+  --text-tiny: 0.75rem;    /* 12   */
+  --text-tiny--line-height: 1.45;
+  --text-mini: 0.8125rem;  /* 13   */
+  --text-mini--line-height: 1.5;
+  --text-half: 0.84375rem; /* 13.5 */
+  --text-half--line-height: 1.5;
 }
 
 html, body, #root { height: 100%; margin: 0; }
 
 body {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans);
+  background-color: var(--color-surface);
+  color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
 }
 
 /* Digits that sit in columns must line up, everywhere they appear. */
 .tnum { font-variant-numeric: tabular-nums; }
 
-/* The console is projected. Anything that encodes an outcome has to be
-   legible from across a room by shape as well as colour. */
+/* Anything that encodes an outcome has to read from across a room, so shape
+   carries it as well as colour. */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   border-radius: 999px;
   border: 1px solid currentColor;
-  padding: 0.1rem 0.5rem;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  padding: 0.1rem 0.55rem;
+  font-size: var(--text-xxs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -62,3 +117,34 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 .chat-composer { flex: 0 0 auto; padding-bottom: env(safe-area-inset-bottom); }
+
+/* The design this was ported from had outline:none everywhere and no
+   :focus-visible at all, which makes the console unusable by keyboard. One
+   ring, defined once, on anything focusable. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent-strong);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Thin scrollbars, tinted to the palette rather than the OS default. */
+* { scrollbar-width: thin; scrollbar-color: #a8ccc4 transparent; }
+*::-webkit-scrollbar { width: 5px; height: 5px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #a8ccc4; border-radius: 99px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The QR sheet is a print artifact. Codes must be pure black on white with a
+   clear quiet zone -- tinting them is how a sheet becomes unscannable under
+   shop lighting without anyone noticing until it is on the shelf. */
+@media print {
+  body { background: #fff; }
+}

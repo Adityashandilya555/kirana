@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import MerchantShell, {
-  Button,
-  Card,
-  EmptyState,
-  Field,
-  inputClass,
-} from '../../components/MerchantShell'
+import MerchantShell from '../../components/MerchantShell'
+import { Button, Card, EmptyState, Field, inputClass } from '../../components/ui'
 import { deleteShelf, getCatalog, getShelves, saveShelf } from '../../lib/merchant'
 import type { CatalogItem, Shelf } from '../../lib/merchant'
 
@@ -96,7 +91,7 @@ export default function ShelvesPage() {
       }
     >
       {error && (
-        <Card className="mb-4 border-fail/40 bg-fail-soft text-sm text-fail">{error}</Card>
+        <Card className="mb-4 border-fail-line bg-fail-bg text-sm text-fail">{error}</Card>
       )}
 
       {catalog.length === 0 && (

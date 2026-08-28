@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import MerchantShell, {
-  Button,
-  Card,
-  EmptyState,
-  Money,
-  Pct,
-} from '../../components/MerchantShell'
+import MerchantShell from '../../components/MerchantShell'
+import { Button, Card, EmptyState, Money, Pct } from '../../components/ui'
 import { API_BASE, MERCHANT_KEY } from '../../lib/api'
 import { getCatalog, importSheet, previewSheet } from '../../lib/merchant'
 import type { CatalogItem, ParsedSheet } from '../../lib/merchant'
@@ -233,7 +228,7 @@ export default function CatalogPage() {
                 {preview.rows.map((r) => (
                   <tr
                     key={r.line}
-                    className={`border-t border-hairline ${r.ok ? '' : 'bg-fail-soft'}`}
+                    className={`border-t border-hairline ${r.ok ? '' : 'bg-fail-bg'}`}
                   >
                     <td className="tnum px-3 py-2 text-ink-soft">{r.line}</td>
                     <td className="px-3 py-2 font-mono text-xs">{r.sku || '—'}</td>

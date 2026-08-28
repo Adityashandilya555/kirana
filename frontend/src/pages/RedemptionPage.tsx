@@ -154,9 +154,9 @@ export default function RedemptionPage() {
       <section
         className={`rounded-2xl border p-4 ${
           check.state === 'ok'
-            ? 'border-pass/40 bg-pass/5'
+            ? 'border-pass-line bg-pass/5'
             : check.state === 'bad'
-              ? 'border-fail/40 bg-fail/5'
+              ? 'border-fail-line bg-fail/5'
               : 'border-hairline bg-white'
         }`}
       >
