@@ -1,68 +1,113 @@
 /* Google Fonts must stay the first statement in this file: a CSS @import is
    only valid before any other rule, and Tailwind's own import counts. */
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 /*
-  One light theme, deliberately. No dark mode and no prefers-color-scheme
-  handling: every colour below is committed, so the page renders the same on
-  any host ground rather than half-inheriting one.
+  Ported from the Z-Matrix design system (Adityashandilya555/Matrix-bd).
 
-  The palette is cool throughout -- aubergine, slate, turquoise, mint. There is
-  no warm grey anywhere, and substituting Tailwind's slate/zinc would flatten
-  it.
+  Two planes, which is Z-Matrix's own rule -- "light for web modules, dark for
+  the command center". The console canvas is Peach Skyline: cool slate-tinted
+  off-white, white cards floating on it. The navigation rail is Deep Obsidian.
+  Kirana already had that dark-rail-on-light-canvas structure; what changed is
+  that both planes are now cut from one palette instead of two.
 
-  The load-bearing constraint: TURQUOISE IS A FILL, NEVER TEXT. #7FDBD3 on
-  white is about 1.6:1, far under the 4.5:1 needed for body copy. So the
-  primary button is ink (about 14:1 with white) and turquoise does selection
-  tints, progress fills and active states. Anything that reads as type takes
-  --color-ink or --color-ink-soft.
+  What the previous palette got wrong, and this fixes: turquoise #7FDBD3 is
+  ~1.6:1 on white, so it could never be type. Every rule in this file used to
+  bend around that -- primary buttons had to be ink, the accent could only ever
+  be a fill. Z-Matrix slate #496580 is 5.9:1 on white AND carries white text at
+  5.9:1, so the accent is finally allowed to be an accent: it does buttons,
+  active states, links and fills with the same value.
+
+  The token NAMES are kirana's, deliberately. Re-pointing the values restyles
+  all fourteen screens without touching them; only the geometry and the pieces
+  Z-Matrix does better -- the rail, the metric card, the pill -- were rewritten.
 */
 @theme {
-  /* --- the four given colours ----------------------------------------- */
-  --color-ink: #2d2142;        /* aubergine: text, sidebar, primary buttons */
-  --color-ink-soft: #43637e;   /* slate: secondary text, table headers      */
-  --color-accent: #7fdbd3;     /* turquoise: fills and tints only           */
-  --color-surface: #defcf1;    /* mint: page canvas, inset wells            */
+  /* --- the plane -------------------------------------------------------
+     surface is the page canvas, card is what floats on it, sunk is a panel
+     cut back into a card. Three depths, never more. */
+  --color-surface: #f4f6fa;       /* cool light canvas                     */
+  --color-surface-2: #edf1f7;     /* banded rows, secondary ground         */
+  --color-card: #ffffff;          /* the floating card                     */
+  --color-sunk: #eff3f9;          /* panel inside a card, hover ground     */
+  --color-sunken: #e4eaf2;        /* deepest well: code blocks, inputs     */
 
-  /* --- derived, to make those four into a working system --------------- */
-  --color-card: #ffffff;
-  --color-hairline: #c7ddd8;      /* borders: mint pulled toward slate      */
-  --color-sunk: #eef9f4;          /* panels inside white cards              */
-  --color-accent-strong: #4bbfb4; /* turquoise dark enough for a hover fill */
-  --color-accent-soft: #c9f0eb;   /* selection tint                         */
+  /* --- linework — slate-tinted, three weights ------------------------- */
+  --color-hairline: #e2e8f0;
+  --color-hairline-strong: #cbd5e1;
+  --color-hairline-faint: #eef2f7;
 
-  --color-sidebar-hover: #3d2f58;
-  --color-sidebar-active: #4a3a68;
-  --color-sidebar-line: #3a2c54;
-  --color-sidebar-text: #e8f8f2;
-  --color-sidebar-muted: #9b8fb5;
+  /* --- text — slate ink, four steps ------------------------------------
+     ink 13.2:1, ink-2 8.6:1, ink-soft 4.9:1 on the canvas. ink-faint is
+     under 4.5:1 and is for non-text UI only (icons, rules, disabled). */
+  --color-ink: #1e2a36;
+  --color-ink-2: #3b4855;
+  --color-ink-soft: #6b7785;
+  --color-ink-faint: #9aa6b2;
+
+  /* --- accent — Z-Matrix slate ----------------------------------------- */
+  --color-accent: #496580;        /* primary action, active state, links   */
+  --color-accent-strong: #3b5269; /* hover                                 */
+  --color-accent-press: #2f4458;  /* press                                 */
+  --color-accent-soft: #e7eef5;   /* selection tint                        */
+  --color-accent-line: #c3d1e0;   /* border on a tinted surface            */
+
+  /* --- brand pastels — categorical fills and decoration, never type ---- */
+  --color-peach: #ffdbbb;
+  --color-sky: #baddff;
+  --color-mint: #bafff5;
+
+  /* --- data highlight — warm amber, AA-readable ------------------------ */
+  --color-copper: #9a6321;
+  --color-copper-soft: #fbead6;
+  --color-copper-line: #e8c49a;
+
+  /* --- secondary accent ------------------------------------------------ */
+  --color-plum: #6b4789;
+  --color-plum-soft: #ece3f2;
 
   /* --- semantic ---------------------------------------------------------
-     Pass leans teal so it sits inside the palette. Fail stays warm on
-     purpose: a refusal is the one thing that must read instantly, and a red
-     that harmonised would be a red nobody noticed. */
-  --color-pass: #0f7b5f;
-  --color-pass-bg: #dcf5ec;
-  --color-pass-line: #8fd4bd;
-  --color-fail: #b3261e;
-  --color-fail-bg: #fce9e7;
-  --color-fail-line: #f0b5b0;
-  --color-warn: #8a5a00;
-  --color-warn-bg: #fdf3dc;
-  --color-warn-line: #e8cc80;
+     Danger stays the one warm value in a cool palette on purpose: a refusal
+     is the thing that must read instantly, and a red that harmonised would
+     be a red nobody noticed. */
+  --color-pass: #15876b;
+  --color-pass-bg: #dbf6ee;
+  --color-pass-line: #9adcc9;
+  --color-fail: #c23b3b;
+  --color-fail-bg: #fbe1e0;
+  --color-fail-line: #efb4b3;
+  --color-warn: #9a6321;
+  --color-warn-bg: #fbead6;
+  --color-warn-line: #e8c49a;
+  --color-info: #2d63b8;
+  --color-info-bg: #e3eefb;
+  --color-info-line: #b8d0ee;
 
-  /* --- type -------------------------------------------------------------
-     Three faces with three jobs: Fraunces for headings AND hero numbers,
-     Instrument Sans for interface text, JetBrains Mono for every string a
-     person reads character by character -- sticker codes, redemption tokens,
-     Merkle roots, money in tables. */
-  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
-  --font-sans: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* --- the rail — Deep Obsidian ----------------------------------------
+     A separate plane, not a darkened version of the canvas. The accent
+     lightens to #8FB6DE here because slate on obsidian is unreadable; that
+     is Z-Matrix's dark-theme accent, not an invention. */
+  --color-rail: #171923;
+  --color-rail-deep: #0b0c10;
+  --color-rail-hover: #20243a;
+  --color-rail-active: #232a42;
+  --color-rail-line: #262a38;
+  --color-rail-text: #e2e8f0;
+  --color-rail-muted: #b4bbc9;
+  --color-rail-faint: #7c8499;
+  --color-rail-section: #525a6f;
+  --color-rail-accent: #8fb6de;
+
+  /* --- type — three families, one job each -----------------------------
+     Plus Jakarta Sans for headings, Inter for interface text, JetBrains Mono
+     for every number and every string read character by character. */
+  --font-display: "Plus Jakarta Sans", "Space Grotesk", system-ui, sans-serif;
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Half-point sizes are load-bearing in this design and sit off Tailwind's
-     scale, so they are registered rather than scattered as arbitrary values. */
+  /* Half-point sizes are load-bearing here and sit off Tailwind's scale, so
+     they are registered rather than scattered as arbitrary values. */
   --text-2xs: 0.625rem;    /* 10   */
   --text-2xs--line-height: 1.4;
   --text-xxs: 0.6875rem;   /* 11   */
@@ -73,6 +118,26 @@
   --text-mini--line-height: 1.5;
   --text-half: 0.84375rem; /* 13.5 */
   --text-half--line-height: 1.5;
+
+  /* --- geometry ---------------------------------------------------------
+     Z-Matrix's radius scale, mapped onto the Tailwind names already used
+     across the screens. Redefining the scale re-cuts every existing
+     rounded-* in the app instead of editing fourteen files. */
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;   /* default card / button */
+  --radius-2xl: 14px;
+  --radius-3xl: 20px;
+
+  /* --- depth — layered glass, cool slate ------------------------------- */
+  --shadow-card: 0 1px 0 rgb(30 41 59 / 0.03), 0 2px 6px rgb(30 41 59 / 0.06);
+  --shadow-lift: 0 1px 0 rgb(30 41 59 / 0.03), 0 8px 18px rgb(30 41 59 / 0.07),
+                 0 1px 4px rgb(30 41 59 / 0.05);
+  --shadow-pop: 0 18px 42px rgb(30 41 59 / 0.12), 0 4px 12px rgb(30 41 59 / 0.06);
+
+  /* --- motion — confident, never bouncy -------------------------------- */
+  --ease-zm: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-zm-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 html, body, #root { height: 100%; margin: 0; }
@@ -82,25 +147,55 @@ body {
   background-color: var(--color-surface);
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Headings take the display face and pull their tracking in; Inter handles
+   everything else. Set once here so no screen has to remember. */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
 }
 
 /* Digits that sit in columns must line up, everywhere they appear. */
 .tnum { font-variant-numeric: tabular-nums; }
 
-/* Anything that encodes an outcome has to read from across a room, so shape
-   carries it as well as colour. */
+/*
+  The blueprint grid. Z-Matrix puts it on dashboard grounds and never on
+  cards, so the white surfaces float above the plane rather than sitting on a
+  flat wash.
+
+  40px cell, ~3% alpha, one weight. A finer cell -- or a second, stronger
+  rhythm laid over it -- turns the canvas into graph paper: the lines start
+  reading as content and compete with the numbers in the cards. This should be
+  felt and not seen. You want the depth, not the grid.
+*/
+.zm-grid {
+  background-image:
+    linear-gradient(to right,  rgb(30 41 59 / 0.032) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(30 41 59 / 0.032) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: -1px -1px;
+}
+
+/*
+  Status pill. Anything that encodes an outcome has to read from across a
+  room, so shape and letterspacing carry it as well as colour: wide tracking
+  and uppercase make a two-word state legible at 11px.
+*/
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
   border-radius: 999px;
-  border: 1px solid currentColor;
-  padding: 0.1rem 0.55rem;
+  border: 1px solid transparent;
+  padding: 0.15rem 0.6rem;
   font-size: var(--text-xxs);
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-weight: 600;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   white-space: nowrap;
+  line-height: 1.35;
 }
 
 /*
@@ -122,16 +217,25 @@ body {
    :focus-visible at all, which makes the console unusable by keyboard. One
    ring, defined once, on anything focusable. */
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--color-accent-strong);
-  outline-offset: 2px;
-  border-radius: 6px;
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(73 101 128 / 0.28);
+  border-radius: 8px;
+}
+
+/* On the dark rail the slate ring disappears; lift it to the rail accent. */
+:where(.zm-rail) :where(a, button, [tabindex]):focus-visible {
+  box-shadow: 0 0 0 3px rgb(143 182 222 / 0.4);
 }
 
 /* Thin scrollbars, tinted to the palette rather than the OS default. */
-* { scrollbar-width: thin; scrollbar-color: #a8ccc4 transparent; }
-*::-webkit-scrollbar { width: 5px; height: 5px; }
+* { scrollbar-width: thin; scrollbar-color: #c3d1e0 transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
 *::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: #a8ccc4; border-radius: 99px; }
+*::-webkit-scrollbar-thumb { background: #c3d1e0; border-radius: 99px; }
+*::-webkit-scrollbar-thumb:hover { background: #a8bbcf; }
+
+.zm-rail * { scrollbar-color: #3a4055 transparent; }
+.zm-rail *::-webkit-scrollbar-thumb { background: #3a4055; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -147,4 +251,5 @@ body {
    shop lighting without anyone noticing until it is on the shelf. */
 @media print {
   body { background: #fff; }
+  .zm-grid { background-image: none; }
 }

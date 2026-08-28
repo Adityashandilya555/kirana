@@ -192,16 +192,16 @@ export default function SlotPage() {
           />
           <button
             type="submit"
-            className="rounded-xl bg-ink px-4 py-2.5 text-half font-semibold text-white hover:bg-sidebar-hover"
+            className="rounded-xl bg-accent px-4 py-2.5 text-half font-semibold text-white transition-colors hover:bg-accent-strong"
           >
             Go
           </button>
         </form>
-        {/* ink-soft, not accent: turquoise on the mint canvas is ~1.7:1 and
-            unreadable. The accent only carries type on the dark sidebar. */}
+        {/* A quiet exit, so it does not compete with Send above it. The accent
+            is readable as type now, which is why the hover lands on it. */}
         <a
           href="/"
-          className="text-half text-ink-soft underline underline-offset-2 hover:text-ink"
+          className="text-half text-ink-soft underline underline-offset-2 transition-colors hover:text-accent"
         >
           Back to the start
         </a>
@@ -287,10 +287,11 @@ export default function SlotPage() {
           <button
             type="submit"
             disabled={sending || !draft.trim()}
-            /* Ink, not accent. Turquoise behind white text is ~1.6:1 — the
-               accent is a fill colour and cannot carry a label. */
-            className="shrink-0 rounded-full bg-ink px-5 py-2.5 text-half font-semibold
-                       text-white transition-colors hover:bg-sidebar-hover
+            /* Accent, now that it can be one: Z-Matrix slate carries white at
+               5.9:1, so the send button is the brand colour rather than the
+               near-black it had to be under the old turquoise. */
+            className="shrink-0 rounded-full bg-accent px-5 py-2.5 text-half font-semibold
+                       text-white transition-colors hover:bg-accent-strong
                        disabled:opacity-40"
           >
             Send

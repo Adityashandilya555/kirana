@@ -41,7 +41,7 @@ export default function OfferCard({
     : null
 
   return (
-    <div className="rounded-2xl border border-hairline bg-card p-5 shadow-[0_1px_4px_rgba(45,33,66,0.06)]">
+    <div className="rounded-2xl border border-hairline bg-card p-5 shadow-card">
       <div className="flex items-baseline justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-tiny text-ink-soft">{itemName ?? offer.sku}</p>

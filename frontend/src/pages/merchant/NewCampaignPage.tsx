@@ -108,6 +108,7 @@ export default function NewCampaignPage() {
 
   return (
     <MerchantShell
+      eyebrow="Create"
       title="New campaign"
       subtitle="Set the limits, see what they do, then freeze them."
     >
