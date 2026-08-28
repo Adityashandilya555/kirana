@@ -228,3 +228,26 @@ export interface AuditFeed {
 
 export const getAudit = (id: string, afterId: number) =>
   apiGet<AuditFeed>(`/api/v1/campaigns/${id}/audit?after_id=${afterId}&limit=200`, true)
+
+/** Per-conversation context the decision rows don't carry — above all, which
+ *  products the slot's scope kept out of the model's world. */
+export interface SessionAudit {
+  session_id: string
+  started_at: string
+  status: string
+  turn_count: number
+  slot_token: string
+  ceiling_bps: number
+  slot_status: string
+  bound_sku: string | null
+  shelf_name: string | null
+  sku: string | null
+  qty: number
+  offer_bps: number | null
+  amount_paise: number | null
+  visible_skus: string[]
+  withheld_skus: string[]
+}
+
+export const getSessionAudit = (id: string) =>
+  apiGet<SessionAudit[]>(`/api/v1/campaigns/${id}/sessions`, true)
