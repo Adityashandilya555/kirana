@@ -238,13 +238,19 @@ function ScopePanel({ s }: { s: SessionAudit }) {
             </span>
           </p>
           <p className="mt-1 text-2xs leading-relaxed text-ink-soft">
-            Not forbidden — absent. These were left out of the model’s context
-            entirely, so no instruction could have produced them.
+            {s.scope_recorded
+              ? 'Not forbidden — absent. Recorded when this conversation opened, so editing a shelf since cannot change what this says.'
+              : 'Not forbidden — absent. Reconstructed from today’s shelves: this conversation predates scope recording, so it may not match what the model actually saw.'}
           </p>
         </>
       ) : (
         <p className="mt-2 text-2xs text-ink-soft">
           This sticker is unbound, so nothing was withheld.
+        </p>
+      )}
+      {!s.scope_recorded && (
+        <p className="mt-2 text-2xs text-warn">
+          Reconstructed, not recorded — treat as indicative rather than evidence.
         </p>
       )}
     </div>
@@ -274,7 +280,7 @@ export default function CampaignDetailPage() {
         cursor.current = feed.cursor
         setRows((r) => [...r, ...feed.items].slice(-1000))
         // Only refetch conversation context when something actually changed.
-        getSessionAudit(campaignId).then(setSessions).catch(() => {})
+        getSessionAudit(campaignId).then((p) => setSessions(p.sessions)).catch(() => {})
       }
       setError(null)
     } catch (e) {
@@ -284,7 +290,7 @@ export default function CampaignDetailPage() {
 
   useEffect(() => {
     void poll()
-    if (campaignId) getSessionAudit(campaignId).then(setSessions).catch(() => {})
+    if (campaignId) getSessionAudit(campaignId).then((p) => setSessions(p.sessions)).catch(() => {})
     const id = setInterval(() => void poll(), POLL_MS)
     return () => clearInterval(id)
   }, [poll, campaignId])

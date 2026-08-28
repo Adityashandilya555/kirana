@@ -187,14 +187,25 @@ async def postmortem(campaign_id: str, db: DbDep, _: MerchantKey) -> dict:
 
 
 @router.get("/campaigns/{campaign_id}/sessions")
-async def session_audit(campaign_id: str, db: DbDep, _: MerchantKey) -> list[dict]:
+async def session_audit(
+    campaign_id: str, db: DbDep, _: MerchantKey,
+    limit: int = Query(default=500, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
     """Conversation-level context the decision rows do not carry.
 
     Chiefly `withheld_skus`: the products this slot's scope kept out of the
     model's world. Binding is enforced by omission rather than instruction, and
     until this endpoint nothing in the product could show that.
+
+    Paginated, and the response carries `total` so the caller can tell a short
+    page from the end of the data. A silent cap meant older threads rendered
+    with no scope panel at all and nothing saying why.
     """
-    return await db.rpc("get_session_audit", {"p_campaign_id": campaign_id}) or []
+    return await db.rpc(
+        "get_session_audit",
+        {"p_campaign_id": campaign_id, "p_limit": limit, "p_offset": offset},
+    ) or {"total": 0, "returned": 0, "offset": offset, "sessions": []}
 
 
 @router.get("/campaigns/{campaign_id}/qr-sheet", response_class=HTMLResponse)

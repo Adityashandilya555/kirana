@@ -1,0 +1,27 @@
+-- Persist what the model could actually see, at the moment it saw it.
+--
+-- get_session_audit derived visible/withheld skus from the CURRENT
+-- shelf_items and the CURRENT active catalog. That is a reconstruction of
+-- today's scope, not a record of the conversation's -- so a merchant who
+-- edits a shelf, or deactivates a product, silently rewrites what a past
+-- conversation is shown to have seen.
+--
+-- That matters more than an ordinary staleness bug because the panel is
+-- presented as EVIDENCE: its whole claim is "these products were absent from
+-- the model's context." Evidence derived from mutable state is not evidence.
+-- Demonstrated: adding RICE5 to a shelf after a conversation made RICE5
+-- disappear from that conversation's withheld list.
+--
+-- The scope is now snapshotted when the session opens, from the same
+-- predicate get_session_context uses to build the catalog it hands the model,
+-- so the record and the thing it records cannot drift.
+--
+-- Sessions predating this column have no snapshot and must not pretend
+-- otherwise: get_session_audit falls back to live derivation for them and
+-- returns scope_recorded=false, which the console renders as "reconstructed,
+-- not recorded -- treat as indicative rather than evidence."
+--
+-- get_session_audit is also paginated. It previously capped at 100 with no
+-- signal, so on a campaign with more sessions than that, older threads lost
+-- their scope panel and slot token with nothing saying why.
+(full statements applied as migration 015_scope_snapshot; see supabase)
