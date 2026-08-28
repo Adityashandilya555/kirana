@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -209,10 +209,21 @@ async def session_audit(
 
 
 @router.get("/campaigns/{campaign_id}/qr-sheet", response_class=HTMLResponse)
-async def qr_sheet(campaign_id: str, db: DbDep, k: str = Query(default="")) -> HTMLResponse:
+async def qr_sheet(
+    campaign_id: str, request: Request, db: DbDep, k: str = Query(default=""),
+) -> HTMLResponse:
     """Printable sheet. Auth by query param because this is opened in a browser
-    tab and sent to a printer, where a custom header is not available."""
-    await require_merchant_key(k)
+    tab and sent to a printer, where a custom header is not available.
+
+    require_merchant_key is called directly rather than as a dependency, which
+    is what makes the query-param key possible -- and is also why the request
+    has to be threaded through by hand. It takes `request` first (the throttle
+    is scoped per caller, and the caller is read off the headers), so passing
+    only the key silently binds the key string to `request` and blows up inside
+    _caller with "'str' object has no attribute 'headers'" on every single
+    print. Both arguments, in order, or this route 500s for everyone.
+    """
+    await require_merchant_key(request, k)
     campaign = await db.rpc("get_campaign", {"p_campaign_id": campaign_id})
     if campaign is None:
         raise HTTPException(status_code=404,
