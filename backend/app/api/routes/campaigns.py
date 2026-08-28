@@ -148,6 +148,17 @@ async def audit_feed(
     )
 
 
+@router.get("/campaigns/{campaign_id}/sessions")
+async def session_audit(campaign_id: str, db: DbDep, _: MerchantKey) -> list[dict]:
+    """Conversation-level context the decision rows do not carry.
+
+    Chiefly `withheld_skus`: the products this slot's scope kept out of the
+    model's world. Binding is enforced by omission rather than instruction, and
+    until this endpoint nothing in the product could show that.
+    """
+    return await db.rpc("get_session_audit", {"p_campaign_id": campaign_id}) or []
+
+
 @router.get("/campaigns/{campaign_id}/qr-sheet", response_class=HTMLResponse)
 async def qr_sheet(campaign_id: str, db: DbDep, k: str = Query(default="")) -> HTMLResponse:
     """Printable sheet. Auth by query param because this is opened in a browser
