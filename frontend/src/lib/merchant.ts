@@ -247,7 +247,21 @@ export interface SessionAudit {
   amount_paise: number | null
   visible_skus: string[]
   withheld_skus: string[]
+  /** False for conversations that predate the snapshot column: their scope is
+   *  reconstructed from today's shelves rather than recorded at the time, and
+   *  the panel says so rather than implying evidence it does not have. */
+  scope_recorded: boolean
 }
 
-export const getSessionAudit = (id: string) =>
-  apiGet<SessionAudit[]>(`/api/v1/campaigns/${id}/sessions`, true)
+export interface SessionAuditPage {
+  total: number
+  returned: number
+  offset: number
+  sessions: SessionAudit[]
+}
+
+export const getSessionAudit = (id: string, offset = 0, limit = 500) =>
+  apiGet<SessionAuditPage>(
+    `/api/v1/campaigns/${id}/sessions?limit=${limit}&offset=${offset}`,
+    true,
+  )

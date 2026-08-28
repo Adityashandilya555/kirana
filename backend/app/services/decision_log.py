@@ -166,6 +166,38 @@ async def record_gate_decision(
     )
 
 
+async def record_upsell(
+    db: DbBackend, *, campaign_id: str, slot_id: str, session_id: str,
+    turn_index: int, sku: str, decision: Decision, provider: str | None,
+) -> None:
+    """An add-on the agent was permitted to suggest.
+
+    Recorded even when refused, because "the agent wanted to upsell and the
+    gate said no" is exactly the kind of thing this trail exists to show -- the
+    bound generalising past discounts rather than applying only to them.
+    """
+    await record(
+        db,
+        campaign_id=campaign_id,
+        kind=DecisionKind.UPSELL,
+        code=decision.code.value,
+        human_reason=(
+            f"Add-on {sku}: {decision.reason}"
+            if decision.approved
+            else f"Add-on {sku} withheld: {decision.reason}"
+        ),
+        customer_reason=decision.customer_reason if decision.approved else None,
+        slot_id=slot_id,
+        session_id=session_id,
+        turn_index=turn_index,
+        proposed_bps=decision.proposed_bps,
+        granted_bps=decision.granted_bps if decision.approved else None,
+        binding_constraint=decision.binding_constraint,
+        llm_provider=provider,
+        meta={"sku": sku, "approved": decision.approved},
+    )
+
+
 async def record_llm_fallback(
     db: DbBackend, *, campaign_id: str, slot_id: str, session_id: str,
     turn_index: int, error: str | None,

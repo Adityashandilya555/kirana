@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from app.api.deps import DbDep, MerchantKey, require_merchant_key
 from app.core.config import settings
 from app.core.db import RpcError
-from app.services import campaign_service, qr_service
+from app.services import advisor, campaign_service, qr_service
 
 router = APIRouter(prefix="/api/v1", tags=["campaigns"])
 
@@ -148,15 +148,64 @@ async def audit_feed(
     )
 
 
+@router.post("/campaigns/advise")
+async def advise(db: DbDep, _: MerchantKey,
+                 merchant_id: str = DEMO_MERCHANT_ID) -> dict:
+    """Propose campaign settings, checked against the simulator before returning.
+
+    The model proposes; simulate.simulate() disposes. Same shape as the
+    negotiation gate, which is what makes it explainable in one sentence.
+    """
+    try:
+        return await advisor.advise(db, merchant_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": str(exc),
+                    "message": "Add some products before planning a campaign."},
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "ADVISOR_UNAVAILABLE",
+                    "message": "The assistant is not reachable just now. "
+                               "Set the numbers yourself and the preview will "
+                               "still check them."},
+        ) from exc
+
+
+@router.get("/campaigns/{campaign_id}/postmortem")
+async def postmortem(campaign_id: str, db: DbDep, _: MerchantKey) -> dict:
+    """What happened, in numbers the model did not invent."""
+    try:
+        return await advisor.postmortem(db, campaign_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": str(exc), "message": "No such campaign."},
+        ) from exc
+
+
 @router.get("/campaigns/{campaign_id}/sessions")
-async def session_audit(campaign_id: str, db: DbDep, _: MerchantKey) -> list[dict]:
+async def session_audit(
+    campaign_id: str, db: DbDep, _: MerchantKey,
+    limit: int = Query(default=500, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
     """Conversation-level context the decision rows do not carry.
 
     Chiefly `withheld_skus`: the products this slot's scope kept out of the
     model's world. Binding is enforced by omission rather than instruction, and
     until this endpoint nothing in the product could show that.
+
+    Paginated, and the response carries `total` so the caller can tell a short
+    page from the end of the data. A silent cap meant older threads rendered
+    with no scope panel at all and nothing saying why.
     """
-    return await db.rpc("get_session_audit", {"p_campaign_id": campaign_id}) or []
+    return await db.rpc(
+        "get_session_audit",
+        {"p_campaign_id": campaign_id, "p_limit": limit, "p_offset": offset},
+    ) or {"total": 0, "returned": 0, "offset": offset, "sessions": []}
 
 
 @router.get("/campaigns/{campaign_id}/qr-sheet", response_class=HTMLResponse)

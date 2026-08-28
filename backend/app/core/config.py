@@ -58,6 +58,17 @@ class Settings(BaseSettings):
 
     PUBLIC_APP_BASE_URL: str = "http://localhost:5173"
 
+    # --- Agent-to-agent commerce -------------------------------------------
+    # Base64 Ed25519 seed. Signs machine quotes so a buyer can verify a price
+    # came from this shop without trusting the connection it arrived over.
+    # Empty is supported: quotes are still served, marked signed=false. Serving
+    # an unsigned quote that looked signed would be far worse than saying so.
+    AGENT_SIGNING_SECRET_KEY: str = ""
+    # Where a buyer should call back. Empty falls back to the request's own
+    # base URL, which is right locally and wrong behind a proxy that rewrites
+    # the host.
+    PUBLIC_API_BASE_URL: str = ""
+
     # --- LLM providers ----------------------------------------------------
     LLM_PRIMARY: str = "ollama_cloud"
     LLM_FALLBACK: str = "groq"

@@ -202,6 +202,13 @@ async def chat_turn(db: DbBackend, session_id: str, message: str) -> dict[str, A
             provider=result.provider, model=result.model,
             latency_ms=result.latency_ms, raw_llm_output=result.raw_output,
         )
+    if oc.last_addon is not None:
+        addon_sku, addon_decision = oc.last_addon
+        await decision_log.record_upsell(
+            db, campaign_id=campaign_id, slot_id=slot_id, session_id=session_id,
+            turn_index=turn_index, sku=addon_sku, decision=addon_decision,
+            provider=result.provider,
+        )
     if result.used_fallback:
         await decision_log.record_llm_fallback(
             db, campaign_id=campaign_id, slot_id=slot_id, session_id=session_id,
