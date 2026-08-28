@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
+    agent,
     campaigns,
     catalog,
     chat,
@@ -73,6 +74,7 @@ app.include_router(chat.router)
 app.include_router(verify.router)
 app.include_router(payments.router)
 app.include_router(webhooks.router)
+app.include_router(agent.router)
 
 
 @app.get("/")

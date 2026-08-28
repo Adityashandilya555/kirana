@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from app.api.deps import DbDep, MerchantKey, require_merchant_key
 from app.core.config import settings
 from app.core.db import RpcError
-from app.services import campaign_service, qr_service
+from app.services import advisor, campaign_service, qr_service
 
 router = APIRouter(prefix="/api/v1", tags=["campaigns"])
 
@@ -146,6 +146,44 @@ async def audit_feed(
         "get_audit_feed",
         {"p_campaign_id": campaign_id, "p_after_id": after_id, "p_limit": limit},
     )
+
+
+@router.post("/campaigns/advise")
+async def advise(db: DbDep, _: MerchantKey,
+                 merchant_id: str = DEMO_MERCHANT_ID) -> dict:
+    """Propose campaign settings, checked against the simulator before returning.
+
+    The model proposes; simulate.simulate() disposes. Same shape as the
+    negotiation gate, which is what makes it explainable in one sentence.
+    """
+    try:
+        return await advisor.advise(db, merchant_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": str(exc),
+                    "message": "Add some products before planning a campaign."},
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "ADVISOR_UNAVAILABLE",
+                    "message": "The assistant is not reachable just now. "
+                               "Set the numbers yourself and the preview will "
+                               "still check them."},
+        ) from exc
+
+
+@router.get("/campaigns/{campaign_id}/postmortem")
+async def postmortem(campaign_id: str, db: DbDep, _: MerchantKey) -> dict:
+    """What happened, in numbers the model did not invent."""
+    try:
+        return await advisor.postmortem(db, campaign_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": str(exc), "message": "No such campaign."},
+        ) from exc
 
 
 @router.get("/campaigns/{campaign_id}/sessions")

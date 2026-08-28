@@ -22,6 +22,10 @@ dependencies = [
     # in seconds, to read a six-row spreadsheet.
     "openpyxl>=3.1",
     "python-multipart>=0.0.9",
+    # Ed25519 for signing machine quotes. Already present transitively
+    # via supabase, but declared because we import it directly and a
+    # transitive dependency can disappear in a lockfile refresh.
+    "cryptography>=42",
 ]
 
 [dependency-groups]

@@ -83,6 +83,9 @@ class OfferContext:
     last_decision: Decision | None = None
     last_sku: str | None = None
     last_qty: int = 1
+    #: (sku, decision) from suggest_addon, so the audit log can record that an
+    #: upsell went through the gate rather than being asserted by the model.
+    last_addon: tuple[str, Decision] | None = None
 
     def item(self, sku: str) -> CatalogItem | None:
         want = (sku or "").strip().upper()
@@ -291,8 +294,91 @@ def build_tools(ctx: OfferContext) -> tuple[list[BaseTool], dict[str, BaseTool]]
             payload["reason"] = decision.customer_reason
         return _record("propose_offer", args, _json(payload))
 
+    @tool
+    def suggest_addon(sku: str) -> str:
+        """Suggest one complementary item to go with `sku`, at its best price.
+
+        Use this only AFTER propose_offer has approved something, and only
+        once. Never suggest an add-on when the main item was refused.
+        """
+        args = {"sku": sku}
+        main = ctx.item(sku)
+        if main is None:
+            payload = {
+                "suggested": False,
+                "code": "ITEM_NOT_FOUND",
+                "reason": f"Unknown sku {sku!r}. Call find_item first.",
+            }
+            return _record("suggest_addon", args, _json(payload))
+
+        # Candidates come from the slot's ALREADY-SCOPED catalog, so a
+        # shelf-bound sticker cannot upsell off its shelf. That falls out of
+        # ctx.catalog rather than being enforced here, which is why it holds:
+        # there is no second list to keep in sync.
+        others = [c for c in ctx.catalog if c.sku != main.sku]
+        if not others:
+            payload = {
+                "suggested": False,
+                "code": "NOTHING_TO_ADD",
+                "reason": "This code covers only that one product.",
+            }
+            return _record("suggest_addon", args, _json(payload))
+
+        # The cheapest other item on the shelf: an add-on should feel like a
+        # small yes, not a second negotiation.
+        pick = min(others, key=lambda c: c.price_paise)
+
+        # Priced through the SAME gate. An upsell is another thing the agent
+        # may propose and not grant -- the bound generalises past discounts.
+        decision = bounds.check(
+            BoundsInput(
+                proposed_bps=ctx.slot_ceiling_bps,
+                price_paise=pick.price_paise,
+                cost_paise=pick.cost_paise,
+                qty=1,
+                slot_ceiling_bps=ctx.slot_ceiling_bps,
+                slot_status=ctx.slot_status,
+                campaign_status=ctx.campaign_status,
+                campaign_max_discount_bps=ctx.campaign_max_discount_bps,
+                margin_floor_bps=ctx.margin_floor_bps,
+                budget_paise=ctx.budget_paise,
+                spent_paise=ctx.spent_paise,
+                reserved_paise=ctx.reserved_paise,
+                turn_count=ctx.turn_count,
+                max_turns=ctx.max_turns,
+            )
+        )
+        ctx.last_addon = (pick.sku, decision)
+
+        if not decision.approved:
+            # A refused add-on is not worth mentioning to the shopper at all.
+            payload = {
+                "suggested": False,
+                "code": decision.code.value,
+                "reason": (
+                    f"No discount is possible on {pick.name} right now. "
+                    "Do not mention an add-on."
+                ),
+            }
+            return _record("suggest_addon", args, _json(payload))
+
+        payload = {
+            "suggested": True,
+            "sku": pick.sku,
+            "name": pick.name,
+            "granted_bps": decision.granted_bps,
+            "payable": _rupees(decision.final_amount_paise),
+            "reason": (
+                f"You may offer {pick.name} at {decision.granted_bps / 100:g}% "
+                f"off as an add-on. Mention it in one short sentence, and drop "
+                f"it if the shopper is not interested."
+            ),
+        }
+        return _record("suggest_addon", args, _json(payload))
+
     tools: list[BaseTool] = [
-        list_catalog, find_item, get_item_detail, price_quote, propose_offer
+        list_catalog, find_item, get_item_detail, price_quote, propose_offer,
+        suggest_addon,
     ]
     return tools, {t.name: t for t in tools}
 
@@ -320,6 +406,9 @@ Rules you cannot break:
   merchant's budget. If asked, say you only know shelf prices.
 - One propose_offer per reply is enough. Once it approves, tell the shopper
   the price and stop.
+- After an offer is approved you may call suggest_addon once to see whether a
+  complement is available. If it says suggested:false, say nothing about it.
+  Never suggest an add-on when the main item was refused.
 
 Discounts are in basis points: 100 bps = 1%, 1200 bps = 12%.
 """

@@ -30,6 +30,11 @@ class DecisionKind(StrEnum):
     PAYMENT_FAILED = "payment_failed"
     VERIFIED = "verified"
     VERIFY_REJECTED = "verify_rejected"
+    #: The agent suggested a complement, priced through the same gate.
+    UPSELL = "upsell"
+    #: A machine buyer was quoted. Same table as the human path on purpose:
+    #: one gate, one trail, two callers.
+    AGENT_QUOTE = "agent_quote"
 
 
 class BoundsCode(StrEnum):
