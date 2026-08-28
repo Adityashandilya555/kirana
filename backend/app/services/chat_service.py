@@ -79,7 +79,26 @@ def _offer_context(ctx: dict[str, Any]) -> OfferContext:
 
 
 def _offer_payload(oc: OfferContext) -> dict[str, Any] | None:
-    """The offer card. Built from the gate's Decision, never from the prose."""
+    """The offer card. Built from the gate's Decision, never from the prose.
+
+    Deliberately WITHOUT max_allowed_bps. That field is the smallest of the
+    four ceilings, and because plan_ceilings tiers most stickers below the
+    campaign maximum, for a typical slot it is exactly slot.ceiling_bps. Sending
+    it meant a shopper could ask for 2%, be approved as proposed, and read their
+    committed ceiling straight out of the response body -- without ever
+    triggering a clamp. From then on the haggling is theatre: they simply ask
+    for the number they were shown.
+
+    It stays server-side and still reaches the model through propose_offer,
+    which is its entire purpose -- the refuse-and-explain loop where the agent
+    re-proposes inside the bound. The merchant console keeps it too.
+
+    What remains here is enough to render the offer honestly: what was asked,
+    what was granted, whether the gate intervened, and which rule bound it. On a
+    clamped turn customer_reason already says "the best this code allows is
+    12%", which is a deliberate disclosure at the point the negotiation has
+    ended -- not a number handed over on turn one.
+    """
     decision = oc.last_decision
     if decision is None or not decision.approved:
         return None
@@ -88,7 +107,6 @@ def _offer_payload(oc: OfferContext) -> dict[str, Any] | None:
         "qty": oc.last_qty,
         "granted_bps": decision.granted_bps,
         "proposed_bps": decision.proposed_bps,
-        "max_allowed_bps": decision.max_allowed_bps,
         "discount_paise": decision.discount_paise,
         "final_amount_paise": decision.final_amount_paise,
         "code": decision.code.value,

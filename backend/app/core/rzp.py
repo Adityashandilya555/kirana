@@ -52,10 +52,23 @@ def configured() -> bool:
 def stub_mode() -> bool:
     """True when we may mint synthetic orders instead of calling Razorpay.
 
-    Never in production, whatever DEMO_MODE says. A missing key in production
-    must be a loud failure, not a silent switch to fake payments.
+    Requires an EXPLICIT opt-in. The previous form was
+    `not configured() and DEMO_MODE and APP_ENV != "production"`, which keyed
+    the guard off variables that both default to the unsafe value: APP_ENV
+    defaults to "local" and DEMO_MODE to True. So any deploy that simply
+    forgot the Razorpay keys -- or set APP_ENV to "staging" -- silently
+    accepted an arbitrary {order_id, payment_id, signature} at the
+    unauthenticated /payments/confirm and minted a real burn-once redemption
+    token for a payment that never happened.
+
+    A guard whose default is "off" is not a guard. ALLOW_STUB_PAYMENTS has to
+    be turned on deliberately, and still refuses in production.
     """
-    return not configured() and settings.DEMO_MODE and settings.APP_ENV != "production"
+    if not settings.ALLOW_STUB_PAYMENTS:
+        return False
+    if settings.APP_ENV == "production":
+        return False
+    return not configured()
 
 
 def client() -> Any:
@@ -143,6 +156,16 @@ def verify_webhook_signature(raw_body: bytes, signature: str) -> bool:
         if stub_mode():
             log.warning("no webhook secret; accepting webhook unchecked")
             return True
+        # Configured for real payments but with no webhook secret: every
+        # delivery fails verification and is dropped, Razorpay sees 200 and
+        # never retries, and settlement silently degrades to the polling path.
+        # Nothing else in the system would ever say so, so say it loudly and
+        # at ERROR -- this is a misconfiguration, not a forged request.
+        log.error(
+            "RAZORPAY_WEBHOOK_SECRET is not set while Razorpay keys are "
+            "configured: every webhook will be rejected and settlement will "
+            "rely on polling alone. Set the secret from the Razorpay dashboard."
+        )
         return False
     import razorpay
 

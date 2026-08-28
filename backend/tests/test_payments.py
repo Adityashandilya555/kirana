@@ -48,31 +48,69 @@ def test_notes_of_any_other_shape_become_an_empty_dict(raw: object) -> None:
 
 
 # -------------------------------------------------------------- stub mode --
-def test_stub_mode_is_never_available_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stub_mode_is_off_unless_explicitly_opted_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The most important assertion in this file.
 
-    Missing Razorpay credentials in production must be a loud failure, not a
-    silent switch to synthetic orders that settle without money moving.
+    Stub mode skips payment signature verification entirely, so an attacker can
+    POST an arbitrary {order_id, payment_id, signature} to the unauthenticated
+    /payments/confirm and mint a real burn-once redemption token for a payment
+    that never happened.
+
+    It used to be `not configured() and DEMO_MODE and APP_ENV != "production"`,
+    and both of those settings default to the unsafe value -- so merely
+    forgetting the Razorpay keys turned it on. A guard whose default is "off"
+    is not a guard.
     """
     monkeypatch.setattr(settings, "RAZORPAY_KEY_ID", "", raising=False)
     monkeypatch.setattr(settings, "RAZORPAY_KEY_SECRET", "", raising=False)
     monkeypatch.setattr(settings, "DEMO_MODE", True, raising=False)
+    monkeypatch.setattr(settings, "APP_ENV", "local", raising=False)
+    monkeypatch.setattr(settings, "ALLOW_STUB_PAYMENTS", False, raising=False)
+    assert rzp.stub_mode() is False
+
+
+def test_stub_mode_is_never_available_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Even opted in. Production is not a place to fake payments."""
+    monkeypatch.setattr(settings, "RAZORPAY_KEY_ID", "", raising=False)
+    monkeypatch.setattr(settings, "RAZORPAY_KEY_SECRET", "", raising=False)
+    monkeypatch.setattr(settings, "ALLOW_STUB_PAYMENTS", True, raising=False)
     monkeypatch.setattr(settings, "APP_ENV", "production", raising=False)
     assert rzp.stub_mode() is False
 
 
-def test_stub_mode_is_available_locally_without_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("env", ["staging", "preview", "test"])
+def test_unopted_environments_do_not_leak_stub_mode(
+    monkeypatch: pytest.MonkeyPatch, env: str,
+) -> None:
+    """The old guard blocked only the literal string "production", so every
+    other environment name silently permitted forged payments."""
     monkeypatch.setattr(settings, "RAZORPAY_KEY_ID", "", raising=False)
     monkeypatch.setattr(settings, "RAZORPAY_KEY_SECRET", "", raising=False)
     monkeypatch.setattr(settings, "DEMO_MODE", True, raising=False)
+    monkeypatch.setattr(settings, "ALLOW_STUB_PAYMENTS", False, raising=False)
+    monkeypatch.setattr(settings, "APP_ENV", env, raising=False)
+    assert rzp.stub_mode() is False
+
+
+def test_stub_mode_available_when_opted_in_outside_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "RAZORPAY_KEY_ID", "", raising=False)
+    monkeypatch.setattr(settings, "RAZORPAY_KEY_SECRET", "", raising=False)
+    monkeypatch.setattr(settings, "ALLOW_STUB_PAYMENTS", True, raising=False)
     monkeypatch.setattr(settings, "APP_ENV", "local", raising=False)
     assert rzp.stub_mode() is True
 
 
 def test_configured_keys_disable_stub_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Real keys always win: never fake a payment we could actually make."""
     monkeypatch.setattr(settings, "RAZORPAY_KEY_ID", "rzp_test_x", raising=False)
     monkeypatch.setattr(settings, "RAZORPAY_KEY_SECRET", "secret", raising=False)
-    monkeypatch.setattr(settings, "DEMO_MODE", True, raising=False)
+    monkeypatch.setattr(settings, "ALLOW_STUB_PAYMENTS", True, raising=False)
     monkeypatch.setattr(settings, "APP_ENV", "local", raising=False)
     assert rzp.stub_mode() is False
     assert rzp.configured() is True
@@ -105,7 +143,7 @@ def test_stub_amount_is_an_int(monkeypatch: pytest.MonkeyPatch) -> None:
     settlement, which then fail AMOUNT_MISMATCH for invisible reasons."""
     monkeypatch.setattr(settings, "RAZORPAY_KEY_ID", "", raising=False)
     monkeypatch.setattr(settings, "RAZORPAY_KEY_SECRET", "", raising=False)
-    monkeypatch.setattr(settings, "DEMO_MODE", True, raising=False)
+    monkeypatch.setattr(settings, "ALLOW_STUB_PAYMENTS", True, raising=False)
     monkeypatch.setattr(settings, "APP_ENV", "local", raising=False)
     order = rzp.create_order(15770, rzp.new_receipt(), {})
     assert isinstance(order["amount"], int)

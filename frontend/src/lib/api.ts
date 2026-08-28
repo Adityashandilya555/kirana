@@ -94,7 +94,6 @@ export interface Offer {
   qty: number
   granted_bps: number
   proposed_bps: number
-  max_allowed_bps: number
   discount_paise: number
   final_amount_paise: number
   code: string
@@ -102,6 +101,9 @@ export interface Offer {
   capped: boolean
   binding_constraint: string | null
   customer_reason: string
+  // No max_allowed_bps. For a typical sticker that value IS the slot's
+  // committed ceiling, and a shopper who can read it stops negotiating and
+  // just asks for it. It stays server-side, where the model needs it.
 }
 
 export interface ChatReply {

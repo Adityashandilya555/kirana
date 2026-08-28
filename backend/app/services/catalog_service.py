@@ -25,13 +25,20 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+log = logging.getLogger("kirana.catalog")
+
 MIN_PRICE_PAISE = 100  # the schema's own floor: check (price_paise >= 100)
 MAX_ROWS = 2_000
+
+#: Cells past this in one row are dropped. A crafted sheet can declare a row
+#: several million columns wide; we only ever read five of them.
+MAX_COLS = 64
 
 #: Header aliases, lower-cased and stripped of punctuation before matching.
 #: Ordered by how strongly each implies the field, because "price" appears
@@ -51,6 +58,14 @@ _ALIASES: dict[str, tuple[str, ...]] = {
 _MONEY_STRIP = re.compile(r"[^\d.\-]")
 _NORMALISE = re.compile(r"[^a-z0-9 ]")
 
+#: Leading characters Excel and Sheets treat as the start of a formula. A cell
+#: like `=cmd|'/c calc'!A1` in a product name is inert in our JSON API and in
+#: React, which is why this is a flag rather than a rejection -- but it becomes
+#: code execution on the shopkeeper's machine the moment anyone adds "export
+#: catalog to CSV", which is an obvious next feature given the import exists.
+#: Surfacing it at import means the row is visible before it is ever stored.
+_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
+
 
 @dataclass
 class Row:
@@ -61,6 +76,8 @@ class Row:
     price_paise: int = 0
     cost_paise: int = 0
     errors: list[str] = field(default_factory=list)
+    #: Notes that do not block the import, unlike `errors`.
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -83,6 +100,7 @@ class Row:
             "line": self.line, "sku": self.sku, "name": self.name, "unit": self.unit,
             "price_paise": self.price_paise, "cost_paise": self.cost_paise,
             "margin_bps": self.margin_bps, "ok": self.ok, "errors": self.errors,
+            "warnings": self.warnings,
         }
 
 
@@ -187,9 +205,30 @@ def _read_rows(filename: str, blob: bytes) -> list[list[Any]]:
             # data_only: read the computed value of a formula, not "=B2*1.2".
             wb = load_workbook(io.BytesIO(blob), read_only=True, data_only=True)
         except Exception as exc:  # noqa: BLE001
-            raise SheetError(f"That file could not be opened as a spreadsheet ({exc}).") from exc
+            # Do not surface the parser's own message: openpyxl and zipfile
+            # exceptions carry archive member paths and internal state.
+            log.warning("openpyxl refused a workbook: %s", exc)
+            raise SheetError(
+                "That file could not be opened as a spreadsheet. "
+                "Re-save it as .xlsx or .csv and try again."
+            ) from exc
         ws = wb[wb.sheetnames[0]]
-        return [list(r) for r in ws.iter_rows(values_only=True)]
+
+        # Consume the generator with a running count instead of materialising
+        # the sheet. An xlsx is a zip: the upload cap bounds the COMPRESSED
+        # size, and a compliant 4 MB file expands to gigabytes of sheet XML at
+        # ordinary ratios. read_only=True gives a streaming parser and
+        # `[list(r) for r in ...]` threw that away, so the whole bomb landed in
+        # memory before MAX_ROWS was ever consulted.
+        rows: list[list[Any]] = []
+        for row in ws.iter_rows(values_only=True):
+            if len(rows) > MAX_ROWS:
+                raise SheetError(
+                    f"That sheet has more than {MAX_ROWS} rows. "
+                    "Split it, or remove the blank rows below your data."
+                )
+            rows.append(list(row[:MAX_COLS]))
+        return rows
 
     # Everything else is treated as delimited text. utf-8-sig strips the BOM
     # Excel writes on "CSV UTF-8", which would otherwise corrupt the first
@@ -250,6 +289,15 @@ def parse_sheet(filename: str, blob: bytes) -> ParsedSheet:
 
         if not row.name:
             row.errors.append("Missing product name")
+        elif row.name.startswith(_FORMULA_LEAD) or row.sku.startswith(_FORMULA_LEAD):
+            # Not a rejection: it is a legitimate, if odd, product name here and
+            # harmless everywhere this data currently goes. Flagged so it is
+            # visible before it is stored, and so a future CSV export has
+            # something to escape rather than discovering this later.
+            row.warnings.append(
+                "Starts with a spreadsheet formula character — it will be "
+                "stored as plain text."
+            )
 
         price = parse_money(cell(raw_row, "price_paise"))
         cost = parse_money(cell(raw_row, "cost_paise"))

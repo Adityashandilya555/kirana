@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import MerchantShell, { Card, Money, Pct } from '../../components/MerchantShell'
+import MerchantShell from '../../components/MerchantShell'
+import { Card, Money, Pct } from '../../components/ui'
 import { getAudit, qrSheetUrl } from '../../lib/merchant'
 import type { AuditRow, Campaign } from '../../lib/merchant'
 
@@ -37,15 +38,15 @@ interface Thread {
 }
 
 const KIND_TONE: Record<string, string> = {
-  approved: 'text-pass bg-pass-soft',
-  clamped: 'text-warn bg-warn-soft',
-  rejected: 'text-fail bg-fail-soft',
-  injection_blocked: 'text-fail bg-fail-soft',
-  verify_rejected: 'text-fail bg-fail-soft',
-  llm_error: 'text-fail bg-fail-soft',
-  llm_fallback: 'text-warn bg-warn-soft',
-  settled: 'text-pass bg-pass-soft',
-  verified: 'text-pass bg-pass-soft',
+  approved: 'text-pass bg-pass-bg',
+  clamped: 'text-warn bg-warn-bg',
+  rejected: 'text-fail bg-fail-bg',
+  injection_blocked: 'text-fail bg-fail-bg',
+  verify_rejected: 'text-fail bg-fail-bg',
+  llm_error: 'text-fail bg-fail-bg',
+  llm_fallback: 'text-warn bg-warn-bg',
+  settled: 'text-pass bg-pass-bg',
+  verified: 'text-pass bg-pass-bg',
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -126,7 +127,7 @@ function ClampBar({ proposed, granted }: { proposed: number; granted: number }) 
           granted <span className="tnum font-medium text-pass"><Pct bps={granted} /></span>
         </span>
       </div>
-      <div className="mt-1 h-2.5 overflow-hidden rounded-full bg-fail-soft">
+      <div className="mt-1 h-2.5 overflow-hidden rounded-full bg-fail-bg">
         <div className="h-full rounded-full bg-pass" style={{ width: `${width}%` }} />
       </div>
     </div>
@@ -243,7 +244,7 @@ export default function CampaignDetailPage() {
             href={qrSheetUrl(campaignId)}
             target="_blank"
             rel="noreferrer"
-            className="rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-white hover:opacity-90"
+            className="rounded-lg bg-ink px-3.5 py-2 text-half font-medium text-white hover:bg-sidebar-hover"
           >
             Print stickers
           </a>
@@ -251,7 +252,7 @@ export default function CampaignDetailPage() {
       }
     >
       {justCommitted && campaign?.merkle_root && (
-        <Card className="mb-4 border-pass/40 bg-pass-soft">
+        <Card className="mb-4 border-pass-line bg-pass-bg">
           <p className="font-medium text-pass">Committed. {campaign.slots_total} stickers generated.</p>
           <p className="mt-1 break-all font-mono text-[11px] text-ink-soft">
             root {campaign.merkle_root}
@@ -263,7 +264,7 @@ export default function CampaignDetailPage() {
       )}
 
       {error && (
-        <Card className="mb-4 border-fail/40 bg-fail-soft text-sm text-fail">{error}</Card>
+        <Card className="mb-4 border-fail-line bg-fail-bg text-sm text-fail">{error}</Card>
       )}
 
       {/* ------------------------------------------------- budget + stats -- */}
@@ -318,7 +319,7 @@ export default function CampaignDetailPage() {
             type="button"
             onClick={() => setFilter(f)}
             className={`rounded-lg px-3 py-1.5 text-sm capitalize transition-colors ${
-              filter === f ? 'bg-accent text-white' : 'border border-hairline bg-surface hover:bg-sunk'
+              filter === f ? 'bg-ink text-white' : 'border border-hairline bg-surface hover:bg-sunk'
             }`}
           >
             {f}
@@ -345,10 +346,10 @@ export default function CampaignDetailPage() {
         {visible.map((t) => {
           const shown = showTools ? t.rows : t.rows.filter((r) => r.kind !== 'tool_call')
           const badge = {
-            blocked: 'text-fail bg-fail-soft',
-            settled: 'text-pass bg-pass-soft',
-            refused: 'text-fail bg-fail-soft',
-            offered: 'text-warn bg-warn-soft',
+            blocked: 'text-fail bg-fail-bg',
+            settled: 'text-pass bg-pass-bg',
+            refused: 'text-fail bg-fail-bg',
+            offered: 'text-warn bg-warn-bg',
             open: 'text-ink-soft bg-sunk',
           }[t.outcome]
           return (

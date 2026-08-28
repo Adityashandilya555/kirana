@@ -16,11 +16,14 @@ last decision made at startup and the first one forgotten.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from abc import ABC, abstractmethod
 from typing import Any
 
 from app.core.config import settings
+
+log = logging.getLogger("kirana.db")
 
 # plpgsql `raise exception 'SLOT_ALREADY_REDEEMED'` reaches us as prose with
 # the token embedded. Pull it back out so callers branch on a code instead of
@@ -29,17 +32,41 @@ _PG_CODE = re.compile(r"\b([A-Z][A-Z0-9_]{4,})\b")
 
 
 class RpcError(RuntimeError):
-    def __init__(self, fn: str, code: str, message: str) -> None:
-        super().__init__(f"{fn}: {code}: {message}")
+    """A failed rpc() call, carrying a plpgsql code where one can be recovered.
+
+    Two message fields, because they have different audiences. `message` is
+    safe to show a customer: it is either the plpgsql code the database raised
+    (SLOT_ALREADY_REDEEMED, BUDGET_EXCEEDED) or a fixed sentence. `detail`
+    holds the underlying exception text and never leaves the server.
+
+    They used to be the same field, and the failure was quiet: a plpgsql error
+    carries `.message` with just the code, so the common path looked fine --
+    but a TRANSPORT error (httpx.ConnectError, a Supabase 5xx) has no
+    `.message`, so `str(exc)` was used, and that string contains the Supabase
+    project URL and host. Those reached unauthenticated customers through the
+    chat and payment routes.
+    """
+
+    def __init__(self, fn: str, code: str, message: str, detail: str = "") -> None:
+        super().__init__(f"{fn}: {code}: {detail or message}")
         self.fn = fn
         self.code = code
         self.message = message
+        self.detail = detail or message
 
     @classmethod
     def from_exception(cls, fn: str, exc: Exception) -> "RpcError":
         raw = getattr(exc, "message", None) or str(exc)
         match = _PG_CODE.search(raw)
-        return cls(fn, match.group(1) if match else "RPC_FAILED", raw)
+        if match:
+            # A recognisable plpgsql code. Safe to surface: it is a token we
+            # wrote ourselves, and the routes map it to a sentence.
+            code = match.group(1)
+            return cls(fn, code, code, raw)
+        # Anything else is transport or an unrecognised driver error. The
+        # caller gets a code it can branch on and nothing about our host.
+        log.warning("rpc %s failed: %s", fn, raw[:300])
+        return cls(fn, "RPC_FAILED", "The shop's system did not respond.", raw)
 
 
 class DbBackend(ABC):

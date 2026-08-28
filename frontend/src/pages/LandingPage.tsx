@@ -1,32 +1,39 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Button, inputClass } from '../components/ui'
 
 /**
  * The front door.
  *
- * This exists because the catch-all route used to redirect to /s/PHASE0TEST,
- * a Phase 0 diagnostic placeholder that was never a real slot. Once SlotPage
- * became the real chat, the bare domain opened a session for a token that does
- * not exist and greeted every visitor with "That code did not work" — an error
- * screen as the front page, which is a bad thing to have on a projector.
- *
- * Nobody reaches this page in the real flow: a customer scans a sticker and
- * deep-links straight to /s/<token>. It is here for the person who types the
- * domain, and for the merchant who needs a way into the console.
+ * Nobody reaches this in the real flow — a customer scans a sticker and deep
+ * links straight to /s/<token>. It exists for the person who types the domain,
+ * and for the shopkeeper who needs a way into the console. It used to redirect
+ * to a Phase 0 placeholder token, which meant the bare domain greeted every
+ * visitor with an error screen.
  */
 export default function LandingPage() {
   const [code, setCode] = useState('')
   const navigate = useNavigate()
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-8 p-6">
+    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-10 p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">
+        <span
+          aria-hidden
+          className="mb-5 grid h-11 w-11 place-items-center rounded-xl bg-accent"
+        >
+          <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
+            <rect x="2" y="3" width="12" height="2.4" rx="1.2" fill="#2d2142" />
+            <rect x="2" y="7" width="9" height="2.4" rx="1.2" fill="#2d2142" opacity="0.7" />
+            <rect x="2" y="11" width="6" height="2.4" rx="1.2" fill="#2d2142" opacity="0.4" />
+          </svg>
+        </span>
+        <h1 className="font-display text-[34px] font-medium leading-[1.1] tracking-tight text-ink">
           Kirana Agent
         </h1>
-        <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+        <p className="mt-3 text-half leading-relaxed text-ink-soft">
           Scan the code on a shelf sticker to haggle with the shopkeeper’s
-          assistant. Every discount it offers is inside a limit the shop
+          assistant. Every discount it offers sits inside a limit the shop
           committed to before you arrived.
         </p>
       </header>
@@ -39,7 +46,7 @@ export default function LandingPage() {
         }}
         className="space-y-2"
       >
-        <label htmlFor="code" className="block text-sm font-medium text-ink">
+        <label htmlFor="code" className="block text-half font-semibold text-ink">
           Have a code from a sticker?
         </label>
         <div className="flex gap-2">
@@ -51,36 +58,30 @@ export default function LandingPage() {
             autoCapitalize="characters"
             autoCorrect="off"
             spellCheck={false}
-            className="min-w-0 flex-1 rounded-xl border border-hairline px-3.5 py-3
-                       font-mono text-base uppercase tracking-widest outline-none
-                       focus:border-accent"
+            className={`${inputClass} bg-card font-mono uppercase tracking-[0.12em]`}
           />
-          <button
-            type="submit"
-            disabled={!code.trim()}
-            className="rounded-xl bg-accent px-5 py-3 text-sm font-semibold text-white
-                       disabled:opacity-40"
-          >
+          <Button type="submit" disabled={!code.trim()}>
             Go
-          </button>
+          </Button>
         </div>
       </form>
 
-      <nav className="space-y-2 border-t border-hairline pt-5 text-sm">
-        <p className="text-xs font-medium uppercase tracking-wide text-ink-soft">
+      <nav className="space-y-2 border-t border-hairline pt-6">
+        <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-ink-soft">
           For the shopkeeper
         </p>
         <a
+          href="/merchant"
+          className="block rounded-xl border border-hairline bg-card px-4 py-3 text-half text-ink transition-colors hover:bg-sunk"
+        >
+          Open the console →
+        </a>
+        <a
           href="/verify"
-          className="block rounded-xl border border-hairline px-3.5 py-3 text-ink
-                     active:bg-slate-50"
+          className="block rounded-xl border border-hairline bg-card px-4 py-3 text-half text-ink transition-colors hover:bg-sunk"
         >
           Verify a redemption code →
         </a>
-        <p className="pt-1 text-xs leading-relaxed text-ink-soft">
-          The live audit console is at <code className="font-mono">/merchant/</code>
-          followed by the campaign id.
-        </p>
       </nav>
     </main>
   )

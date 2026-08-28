@@ -35,7 +35,12 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str = ""
 
     # --- Merchant console -------------------------------------------------
-    MERCHANT_API_KEY: str = "dev-merchant-key"
+    # Deliberately empty rather than a usable default. The old default was
+    # "dev-merchant-key", a literal published in this repository -- so any
+    # deploy that forgot the env var shipped with a key an attacker could read
+    # off GitHub. Empty means require_merchant_key refuses every request,
+    # which is a visible failure instead of a silent compromise.
+    MERCHANT_API_KEY: str = ""
 
     # --- Razorpay ---------------------------------------------------------
     # KEY_SECRET signs the checkout callback; WEBHOOK_SECRET signs the
@@ -44,6 +49,12 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
     RAZORPAY_WEBHOOK_SECRET: str = ""
+
+    # Mint synthetic Razorpay orders and skip signature checks. Off unless
+    # switched on deliberately, and ignored in production regardless: this
+    # bypasses payment verification entirely, so it must never be reachable
+    # by forgetting to set something.
+    ALLOW_STUB_PAYMENTS: bool = False
 
     PUBLIC_APP_BASE_URL: str = "http://localhost:5173"
 
