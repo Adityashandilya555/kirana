@@ -1,0 +1,279 @@
+{
+  "cap_domain": "kirana.caps.v1",
+  "campaign_id": "3f2a1c8e-0b4d-4e6f-9a12-77c5d3e8b401",
+  "cases": [
+    {
+      "rows": [
+        {
+          "row_index": 0,
+          "sku": "TEA250",
+          "cap_bps": 1600,
+          "salt_hex": "00000000000000000000000000000000",
+          "leaf_hash": "c5ccb8c04df92fb8197615e38b9340b0d9b52dcd3363b81c4cbbc54c6e18b916"
+        }
+      ],
+      "cap_root": "c5ccb8c04df92fb8197615e38b9340b0d9b52dcd3363b81c4cbbc54c6e18b916",
+      "cap_tree_size": 1,
+      "depth": 0,
+      "proofs": [
+        []
+      ]
+    },
+    {
+      "rows": [
+        {
+          "row_index": 0,
+          "sku": "ATTA5",
+          "cap_bps": 900,
+          "salt_hex": "00000000000000000000000000000000",
+          "leaf_hash": "f141f066adceebae6ad328435eeda7d57f2f21c2259976ed99bf3d2e5cc18a4f"
+        },
+        {
+          "row_index": 1,
+          "sku": "TEA250",
+          "cap_bps": 1600,
+          "salt_hex": "00000000000000000000000000000001",
+          "leaf_hash": "31f993cc83883fdece377aac8b8dcb620dc9db020bfcd28a0168fb3301931a17"
+        }
+      ],
+      "cap_root": "794707a342b17f256dc5552a28811b353093ef227de51c12faf7f2a8ccce8277",
+      "cap_tree_size": 2,
+      "depth": 1,
+      "proofs": [
+        [
+          {
+            "hash": "31f993cc83883fdece377aac8b8dcb620dc9db020bfcd28a0168fb3301931a17",
+            "position": "right"
+          }
+        ],
+        [
+          {
+            "hash": "f141f066adceebae6ad328435eeda7d57f2f21c2259976ed99bf3d2e5cc18a4f",
+            "position": "left"
+          }
+        ]
+      ]
+    },
+    {
+      "rows": [
+        {
+          "row_index": 0,
+          "sku": "ATTA5",
+          "cap_bps": 900,
+          "salt_hex": "00000000000000000000000000000000",
+          "leaf_hash": "f141f066adceebae6ad328435eeda7d57f2f21c2259976ed99bf3d2e5cc18a4f"
+        },
+        {
+          "row_index": 1,
+          "sku": "SUGAR1",
+          "cap_bps": 0,
+          "salt_hex": "00000000000000000000000000000001",
+          "leaf_hash": "8f8cbda38afedd002dbe2c0e067657cf513b72d679c6fa427d43ba6278cfa3ae"
+        },
+        {
+          "row_index": 2,
+          "sku": "TEA250",
+          "cap_bps": 1600,
+          "salt_hex": "00000000000000000000000000000002",
+          "leaf_hash": "2bfcec5ea46eb84e4c5be60d05df35a95ca7a4f0c8e851f26af6d692c62b26c7"
+        }
+      ],
+      "cap_root": "705c447f294c27985208b22314ba1a2b97f3d972227f76ec8e222f1132d50e66",
+      "cap_tree_size": 4,
+      "depth": 2,
+      "proofs": [
+        [
+          {
+            "hash": "8f8cbda38afedd002dbe2c0e067657cf513b72d679c6fa427d43ba6278cfa3ae",
+            "position": "right"
+          },
+          {
+            "hash": "29acd95fdf9cd2c52e05c3c29f301d721bdda7aeb7a570581963b6304062b0c3",
+            "position": "right"
+          }
+        ],
+        [
+          {
+            "hash": "f141f066adceebae6ad328435eeda7d57f2f21c2259976ed99bf3d2e5cc18a4f",
+            "position": "left"
+          },
+          {
+            "hash": "29acd95fdf9cd2c52e05c3c29f301d721bdda7aeb7a570581963b6304062b0c3",
+            "position": "right"
+          }
+        ],
+        [
+          {
+            "hash": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+            "position": "right"
+          },
+          {
+            "hash": "9e82e3643d17883e456589b8d7ae6c2064eb3383c2abad55f46b4921968c68cb",
+            "position": "left"
+          }
+        ]
+      ]
+    },
+    {
+      "rows": [
+        {
+          "row_index": 0,
+          "sku": "ATTA5",
+          "cap_bps": 900,
+          "salt_hex": "00000000000000000000000000000000",
+          "leaf_hash": "f141f066adceebae6ad328435eeda7d57f2f21c2259976ed99bf3d2e5cc18a4f"
+        },
+        {
+          "row_index": 1,
+          "sku": "DAL1K",
+          "cap_bps": 1200,
+          "salt_hex": "00000000000000000000000000000001",
+          "leaf_hash": "088897b265d1b1417ad760fa297133f91fba865e9ed4aa032fa2b2480b6a400e"
+        },
+        {
+          "row_index": 2,
+          "sku": "OIL1L",
+          "cap_bps": 450,
+          "salt_hex": "00000000000000000000000000000002",
+          "leaf_hash": "c32145aa6c823183fb17d1d9fd05d97fe0172c3e7b9b5e15538b7baa210c0fd5"
+        },
+        {
+          "row_index": 3,
+          "sku": "RICE5",
+          "cap_bps": 2000,
+          "salt_hex": "00000000000000000000000000000003",
+          "leaf_hash": "8a24828d076371354c962daceb5caed315a95492dfdfcf487066d116bd87c31b"
+        },
+        {
+          "row_index": 4,
+          "sku": "SUGAR1",
+          "cap_bps": 0,
+          "salt_hex": "00000000000000000000000000000004",
+          "leaf_hash": "93603eb9977efd5910901eeccc0debf0c0e84cede0db14ab31e72547e4d7ab90"
+        },
+        {
+          "row_index": 5,
+          "sku": "TEA250",
+          "cap_bps": 1600,
+          "salt_hex": "00000000000000000000000000000005",
+          "leaf_hash": "02dfdf21204ff8bd51a9a9f1503ca12efe521da061e7001b7c9243e92f30f6c9"
+        }
+      ],
+      "cap_root": "3164a111c557848a0b386ce62974c5d28378604ff0fced5217419b39c7c68665",
+      "cap_tree_size": 8,
+      "depth": 3,
+      "proofs": [
+        [
+          {
+            "hash": "088897b265d1b1417ad760fa297133f91fba865e9ed4aa032fa2b2480b6a400e",
+            "position": "right"
+          },
+          {
+            "hash": "413e325084d616146d1042e9f0125e28b765689e41f26cf53fd0ab9e371ec23b",
+            "position": "right"
+          },
+          {
+            "hash": "eb6848fdb70296b9e349ac4e41269c355966447c5a717fda8aed41eb6ad564d4",
+            "position": "right"
+          }
+        ],
+        [
+          {
+            "hash": "f141f066adceebae6ad328435eeda7d57f2f21c2259976ed99bf3d2e5cc18a4f",
+            "position": "left"
+          },
+          {
+            "hash": "413e325084d616146d1042e9f0125e28b765689e41f26cf53fd0ab9e371ec23b",
+            "position": "right"
+          },
+          {
+            "hash": "eb6848fdb70296b9e349ac4e41269c355966447c5a717fda8aed41eb6ad564d4",
+            "position": "right"
+          }
+        ],
+        [
+          {
+            "hash": "8a24828d076371354c962daceb5caed315a95492dfdfcf487066d116bd87c31b",
+            "position": "right"
+          },
+          {
+            "hash": "388ab0444182ec73e02797e0234e040efc839c966aaeb7ac78d6eb050146611d",
+            "position": "left"
+          },
+          {
+            "hash": "eb6848fdb70296b9e349ac4e41269c355966447c5a717fda8aed41eb6ad564d4",
+            "position": "right"
+          }
+        ],
+        [
+          {
+            "hash": "c32145aa6c823183fb17d1d9fd05d97fe0172c3e7b9b5e15538b7baa210c0fd5",
+            "position": "left"
+          },
+          {
+            "hash": "388ab0444182ec73e02797e0234e040efc839c966aaeb7ac78d6eb050146611d",
+            "position": "left"
+          },
+          {
+            "hash": "eb6848fdb70296b9e349ac4e41269c355966447c5a717fda8aed41eb6ad564d4",
+            "position": "right"
+          }
+        ],
+        [
+          {
+            "hash": "02dfdf21204ff8bd51a9a9f1503ca12efe521da061e7001b7c9243e92f30f6c9",
+            "position": "right"
+          },
+          {
+            "hash": "fe43d66afa4a9a5c4f9c9da89f4ffb52635c8f342e7ffb731d68e36c5982072a",
+            "position": "right"
+          },
+          {
+            "hash": "b8416dda1e41e05f9b6b1f5c3c2101a169d87075365e68d1341b0f3cd76ffec1",
+            "position": "left"
+          }
+        ],
+        [
+          {
+            "hash": "93603eb9977efd5910901eeccc0debf0c0e84cede0db14ab31e72547e4d7ab90",
+            "position": "left"
+          },
+          {
+            "hash": "fe43d66afa4a9a5c4f9c9da89f4ffb52635c8f342e7ffb731d68e36c5982072a",
+            "position": "right"
+          },
+          {
+            "hash": "b8416dda1e41e05f9b6b1f5c3c2101a169d87075365e68d1341b0f3cd76ffec1",
+            "position": "left"
+          }
+        ]
+      ]
+    }
+  ],
+  "tier_cases": [
+    {
+      "tier_min_txn_count": 0,
+      "tier_min_spend_paise": 0,
+      "tier_window_days": null,
+      "base_cap_fraction_bps": 10000,
+      "campaign_id": "3f2a1c8e-0b4d-4e6f-9a12-77c5d3e8b401",
+      "expected": "c4314c137616ec58034da93ab714130b891806edfd2e1b5896b181b7af317df4"
+    },
+    {
+      "tier_min_txn_count": 3,
+      "tier_min_spend_paise": 100000,
+      "tier_window_days": 30,
+      "base_cap_fraction_bps": 5000,
+      "campaign_id": "3f2a1c8e-0b4d-4e6f-9a12-77c5d3e8b401",
+      "expected": "086e91367dcd2cd8f24b2a55e7148f243caf77629bb7ec00086db8467e13d24b"
+    },
+    {
+      "tier_min_txn_count": 10,
+      "tier_min_spend_paise": 0,
+      "tier_window_days": null,
+      "base_cap_fraction_bps": 2500,
+      "campaign_id": "3f2a1c8e-0b4d-4e6f-9a12-77c5d3e8b401",
+      "expected": "6998ca429fdf6f3ed3b084b465b98aec8ed55fe345798cb382f741fa780971c0"
+    }
+  ]
+}
