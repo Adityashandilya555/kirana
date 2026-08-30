@@ -143,6 +143,26 @@ export const getCampaign = (id: string) =>
 export const createCampaign = (body: Record<string, unknown>) =>
   apiPost<Campaign>('/api/v1/campaigns', body, true)
 
+/** Who counts as a regular, and what everyone else gets instead.
+ *
+ *  Draft only — set between createCampaign and commitCampaign, because once
+ *  stickers are printed the promise is fixed and moving the qualifying line
+ *  would silently re-price codes already on shelves. */
+export interface TierRule {
+  min_txn_count: number
+  min_spend_paise: number
+  /** null is lifetime. Days, so "three weeks" is just 21. */
+  window_days: number | null
+  /** What a shopper who does NOT qualify may reach, as a fraction of each
+   *  product's own cap. 10000 = no reduction, which is the default. */
+  base_cap_fraction_bps: number
+}
+
+export const setCampaignTier = (id: string, body: TierRule) =>
+  apiPost<TierRule & { campaign_id: string }>(
+    `/api/v1/campaigns/${id}/tier`, body, true,
+  )
+
 export const commitCampaign = (id: string, targets: string[]) =>
   apiPost<Campaign & { slots_created: number; qr_sheet_url: string }>(
     `/api/v1/campaigns/${id}/commit`,

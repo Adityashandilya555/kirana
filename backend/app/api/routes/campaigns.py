@@ -28,6 +28,24 @@ class CreateCampaign(BaseModel):
     slot_binding: str = Field(default="open", pattern="^(open|product|shelf)$")
 
 
+class TierBody(BaseModel):
+    """Who counts as a regular, and what everyone else gets instead.
+
+    Draft-only, like the ceilings: once stickers are printed the promise is
+    fixed, and moving the qualifying line afterwards would silently re-price
+    codes already sitting on shelves.
+    """
+
+    min_txn_count: int = Field(default=0, ge=0, le=1_000)
+    min_spend_paise: int = Field(default=0, ge=0, le=100_000_000)
+    #: None is lifetime. Days rather than an enum: "three weeks" is just 21.
+    window_days: int | None = Field(default=None, ge=1, le=3_650)
+    #: What a shopper who does not qualify may reach, as a fraction of each
+    #: product's own cap. 10000 = no reduction, which is the default so a
+    #: campaign that never calls this behaves exactly as before.
+    base_cap_fraction_bps: int = Field(default=10_000, ge=0, le=10_000)
+
+
 class CommitBody(BaseModel):
     """What each sticker is scoped to, distributed round-robin across the sheet.
 
@@ -66,6 +84,29 @@ async def create_campaign(body: CreateCampaign, db: DbDep, _: MerchantKey) -> di
             slot_count=body.slot_count,
             slot_binding=body.slot_binding,
         )
+    except RpcError as exc:
+        raise _rpc_http(exc) from exc
+
+
+@router.post("/campaigns/{campaign_id}/tier")
+async def set_campaign_tier(
+    campaign_id: str, body: TierBody, db: DbDep, _: MerchantKey,
+) -> dict:
+    """Set the qualifying rule. Draft only; 409 once committed.
+
+    Recorded but not yet spent: the band is evaluated and written on every scan
+    from here on, and nothing reads it when pricing. That is deliberate, so a
+    shopkeeper can watch who their rule actually catches before it starts
+    costing them margin.
+    """
+    try:
+        return await db.rpc("set_campaign_tier", {
+            "p_campaign_id": campaign_id,
+            "p_min_txn_count": body.min_txn_count,
+            "p_min_spend_paise": body.min_spend_paise,
+            "p_window_days": body.window_days,
+            "p_base_cap_fraction_bps": body.base_cap_fraction_bps,
+        })
     except RpcError as exc:
         raise _rpc_http(exc) from exc
 

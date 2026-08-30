@@ -20,6 +20,8 @@ and into the transcript the merchant console renders. Same posture as
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from typing import Any
 
 #: India only, and deliberately so. This is a kirana in Lajpat Nagar; accepting
 #: arbitrary international numbers would mean accepting arbitrary lengths, and
@@ -103,3 +105,156 @@ def last4(e164: str) -> str:
 def masked(e164: str | None) -> str:
     """For anything a human reads. Never the whole number."""
     return f"…{last4(e164)}" if e164 else "not given"
+
+
+# ============================================================== the band ====
+#
+# Two bands, and the rule is two comparisons. It is written twice on purpose
+# and the duplication is bounded: SQL evaluates it inside open_session_by_token
+# because that is where the snapshot is written, and this module evaluates it
+# for the merchant-side preview ("how many of my shoppers would qualify?").
+# The second question never decides anyone's price, so a drift between them
+# costs a wrong preview rather than a wrong discount.
+
+MAX_BPS = 10_000
+
+#: The window presets the console offers. Days, because "three weeks" and
+#: "last month" are just numbers and a shopkeeper wanting 45 should not need a
+#: migration. None is lifetime.
+WINDOW_PRESETS: dict[str, int | None] = {
+    "3 weeks": 21,
+    "last month": 30,
+    "3 months": 90,
+    "lifetime": None,
+}
+
+
+@dataclass(frozen=True)
+class TierRule:
+    """What the merchant set. Frozen at commit, alongside the ceilings."""
+
+    min_txn_count: int = 0
+    min_spend_paise: int = 0
+    window_days: int | None = None
+    #: What a shopper who does NOT qualify may reach, as a fraction of each
+    #: product's own cap. 10000 = the whole thing, i.e. no reduction, which is
+    #: the default so an unconfigured campaign behaves as it always has.
+    base_cap_fraction_bps: int = MAX_BPS
+
+    @property
+    def configured(self) -> bool:
+        """False when the merchant has not asked for tiers at all.
+
+        Worth naming: with no thresholds AND no reduction, every shopper
+        qualifies and the cap is untouched, so the whole feature is inert and
+        the console should say so rather than implying a rule is in force.
+        """
+        return (
+            self.min_txn_count > 0
+            or self.min_spend_paise > 0
+            or self.base_cap_fraction_bps < MAX_BPS
+        )
+
+
+@dataclass(frozen=True)
+class CustomerStats:
+    """What this shopper has actually done here, inside the window."""
+
+    txn_count: int = 0
+    spend_paise: int = 0
+    identified: bool = False
+
+    @classmethod
+    def from_snapshot(cls, raw: dict[str, Any] | None) -> CustomerStats:
+        """Read the snapshot written at session open.
+
+        Tolerant of missing keys: sessions that predate the snapshot have none,
+        and the honest reading of "no record" is "no history", not a crash.
+        """
+        raw = raw or {}
+        return cls(
+            txn_count=int(raw.get("txn_count") or 0),
+            spend_paise=int(raw.get("spend_paise") or 0),
+            identified=bool(raw.get("identified")),
+        )
+
+
+@dataclass(frozen=True)
+class TierVerdict:
+    key: str  # 'new' | 'preferred'
+    qualifies: bool
+    cap_fraction_bps: int
+    reason: str
+
+
+def evaluate_tier(rule: TierRule, stats: CustomerStats) -> TierVerdict:
+    """Does this shopper reach the full ceiling, or a fraction of it?
+
+    Pure: no clock, no database, no model. The time window is already applied
+    by the time the stats arrive, precisely so that this function cannot give
+    two different answers on two different days for the same inputs.
+
+    An unidentified shopper is 'new'. That is not a punishment for declining to
+    give a number -- it is the only honest answer, because there is no history
+    to read.
+    """
+    if not stats.identified:
+        return TierVerdict(
+            key="new", qualifies=False,
+            cap_fraction_bps=rule.base_cap_fraction_bps,
+            reason="Not identified, so there is no history to go on.",
+        )
+
+    enough_visits = stats.txn_count >= rule.min_txn_count
+    enough_spend = stats.spend_paise >= rule.min_spend_paise
+
+    if enough_visits and enough_spend:
+        return TierVerdict(
+            key="preferred", qualifies=True, cap_fraction_bps=MAX_BPS,
+            reason=(
+                f"{stats.txn_count} purchases and "
+                f"₹{stats.spend_paise / 100:,.2f} spent here."
+            ),
+        )
+
+    missing = []
+    if not enough_visits:
+        missing.append(f"{rule.min_txn_count - stats.txn_count} more purchases")
+    if not enough_spend:
+        missing.append(f"₹{(rule.min_spend_paise - stats.spend_paise) / 100:,.2f} more spent")
+    return TierVerdict(
+        key="new", qualifies=False,
+        cap_fraction_bps=rule.base_cap_fraction_bps,
+        reason="Needs " + " and ".join(missing) + ".",
+    )
+
+
+def effective_cap_bps(product_cap_bps: int, cap_fraction_bps: int) -> int:
+    """This shopper's ceiling on this product.
+
+    Integer arithmetic and floor division, like every other money path here: a
+    float in a ceiling is how a cap ends up one basis point above the number
+    that was committed.
+    """
+    if product_cap_bps <= 0:
+        return 0
+    fraction = max(0, min(cap_fraction_bps, MAX_BPS))
+    return product_cap_bps * fraction // MAX_BPS
+
+
+def standing_phrase(stats: CustomerStats) -> str:
+    """How the assistant is allowed to describe someone, out loud.
+
+    Bands, never numbers. The agent may truthfully say "you shop here often";
+    it may not say "you are on 12%", because a shopper who learns a percentage
+    has learned a ceiling and the haggling is over.
+    """
+    if not stats.identified:
+        return "a new face"
+    if stats.txn_count >= 10:
+        return "a regular here"
+    if stats.txn_count >= 3:
+        return "a returning customer"
+    if stats.txn_count >= 1:
+        return "been here once or twice"
+    return "a first visit"

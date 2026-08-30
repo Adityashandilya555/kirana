@@ -83,6 +83,13 @@ def _offer_context(ctx: dict[str, Any]) -> OfferContext:
         reserved_paise=int(campaign["reserved_paise"]),
         turn_count=int(session.get("turn_count") or 0),
         max_turns=int(campaign["max_turns"]),
+        # Read off the snapshot written when the session opened, never
+        # recomputed here. Sessions from before tiers existed have no snapshot,
+        # and the honest default for "no record" is the untiered one: band
+        # 'new' at the full fraction, which is exactly today's behaviour.
+        tier_key=session.get("tier_key") or "new",
+        tier_cap_fraction_bps=int(session.get("tier_cap_fraction_bps") or 10_000),
+        tier_stats=session.get("tier_stats") or {},
     )
 
 
