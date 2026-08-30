@@ -25,7 +25,16 @@ TEA = CatalogItem(
 )
 
 #: Every field name that would reveal, or let a shopper derive, the ceiling.
-CEILING_FIELDS = {"max_allowed_bps", "ceiling_bps", "slot_ceiling_bps"}
+#: Every field that would hand a shopper a ceiling. cap_bps and
+#: customer_tier_cap_bps are new and belong here for the same reason as the
+#: rest: knowing the number ends the negotiation. cap_fraction is worse than
+#: the others -- combined with a single observed grant it recovers the product
+#: cap by division, so it must never reach the phone even alongside a band name.
+CEILING_FIELDS = {
+    "max_allowed_bps", "ceiling_bps", "slot_ceiling_bps",
+    "cap_bps", "product_cap_bps", "customer_cap_bps",
+    "customer_tier_cap_bps", "tier_cap_fraction_bps",
+}
 
 
 def _offer(proposed_bps: int, ceiling_bps: int = 1200) -> dict | None:

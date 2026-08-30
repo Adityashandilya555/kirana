@@ -160,14 +160,37 @@ describe('OUTCOME_PLAIN', () => {
 })
 
 describe('LIMIT_LABEL', () => {
-  it('covers the four bounds the gate can be held by', () => {
+  /*
+   * These keys are the VALUES of BINDING in backend/app/core/codes.py, and
+   * this list previously got one of them wrong: it asserted `budget_paise`
+   * while the backend has always sent `remaining_budget_paise`. Because the
+   * label map agreed with the test rather than with the backend, both were
+   * green and every budget-bound clamp silently rendered the generic fallback.
+   *
+   * A test that agrees with the wrong implementation is worse than no test.
+   * The real guard is now on the Python side — test_new_ceilings.py reads this
+   * file and asserts the two sets are identical — so drift fails loudly rather
+   * than being confirmed by a copy of itself. This stays as a fast local check
+   * that nothing is missing.
+   */
+  it('covers every bound the gate can be held by', () => {
     for (const k of [
+      'product_cap_bps',
       'slot_ceiling_bps',
       'campaign_max_discount_bps',
       'margin_floor_bps',
-      'budget_paise',
+      'remaining_budget_paise',
+      'customer_tier_cap_bps',
     ]) {
       expect(LIMIT_LABEL[k], k).toBeTruthy()
+    }
+  })
+
+  it('says which limit bit, without naming a number', () => {
+    // The band label in particular reaches a shopkeeper's screen next to the
+    // conversation. It should describe the rule, not quote its ceiling.
+    for (const label of Object.values(LIMIT_LABEL)) {
+      expect(label).not.toMatch(/\d/)
     }
   })
 })

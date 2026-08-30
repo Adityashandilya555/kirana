@@ -27,7 +27,7 @@ from app.core.bounds import BoundsInput
 from app.core.codes import DecisionKind
 from app.core.config import settings
 from app.core.db import DbBackend, RpcError
-from app.services import decision_log
+from app.services import customer_service, decision_log
 
 log = logging.getLogger("kirana.payment")
 
@@ -70,6 +70,12 @@ async def accept(
     if item is None:
         raise PaymentError("ITEM_NOT_FOUND", f"No such item {sku!r}.")
 
+    # Same derivation as the negotiation path. Re-gating an accept against a
+    # looser set of ceilings than the offer was made under would let a shopper
+    # accept a number they were never actually offered.
+    product_cap, customer_cap = customer_service.caps_for_item(
+        item.get("cap_bps"), session.get("tier_cap_fraction_bps")
+    )
     verdict = bounds.check(
         BoundsInput(
             proposed_bps=int(discount_bps),
@@ -88,6 +94,8 @@ async def accept(
             # decided to pay must not be refused for having talked too long.
             turn_count=0,
             max_turns=int(campaign["max_turns"]),
+            product_cap_bps=product_cap,
+            customer_cap_bps=customer_cap,
         )
     )
     if not verdict.approved:

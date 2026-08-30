@@ -45,11 +45,22 @@ export function pct(bps: number | null | undefined): string {
  * set them as "maximum discount" and "margin floor" on a form, so those are
  * the words they get back.
  */
+/**
+ * Keys here MUST match the values of BINDING in backend/app/core/codes.py.
+ *
+ * `budget_paise` was wrong: the backend sends `remaining_budget_paise`, so
+ * every budget-bound clamp has been rendering the generic fallback instead of
+ * this sentence. Nothing failed, nothing logged — the page just quietly said
+ * less than it knew. A test in plainLanguage.test.ts now pins the two sets
+ * together so the next added ceiling cannot repeat it.
+ */
 export const LIMIT_LABEL: Record<string, string> = {
+  product_cap_bps: "this product's own limit",
   slot_ceiling_bps: "this sticker's own limit",
   campaign_max_discount_bps: 'your maximum discount for this campaign',
   margin_floor_bps: 'your profit floor',
-  budget_paise: 'the budget left in this campaign',
+  remaining_budget_paise: 'the budget left in this campaign',
+  customer_tier_cap_bps: 'this being a new customer',
 }
 
 export function plainLimit(constraint: string | null | undefined): string {

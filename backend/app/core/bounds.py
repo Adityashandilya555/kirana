@@ -54,6 +54,18 @@ class BoundsInput:
     turn_count: int = 0
     max_turns: int = 6
 
+    #: The ceiling committed for THIS product at commit time, from
+    #: campaign_product_caps. None means the campaign predates per-product
+    #: caps (ceiling_mode 'tiered'), and the ceiling is simply not applied.
+    #: Defaulting to None is the whole compatibility story: every existing
+    #: construction of this dataclass is unaffected.
+    product_cap_bps: int | None = None
+
+    #: What this shopper's band may reach, already resolved against the
+    #: product cap by customer_service.effective_cap_bps. None means no band
+    #: was evaluated -- an unidentified shopper on a campaign with no rule.
+    customer_cap_bps: int | None = None
+
     @property
     def gross_paise(self) -> int:
         return self.price_paise * self.qty
@@ -191,15 +203,30 @@ def check(i: BoundsInput) -> Decision:
             "I cannot go below cost on this one -- it is already keenly priced.",
         )
 
-    # -- Stage B: four ceilings, smallest wins ------------------------------
+    # -- Stage B: the ceilings, smallest wins -------------------------------
     budget_ceiling = i.remaining_budget_paise * MAX_BPS // i.gross_paise
 
-    ceilings: list[tuple[int, BoundsCode]] = [
+    # Order is load-bearing on TIES ONLY -- numerically the smallest always
+    # wins, but when two are equal the earliest here is the one named.
+    #
+    # The product cap goes first because it is the most specific promise the
+    # merchant made: it was committed per sku, before any sticker was printed,
+    # and it is the one a customer can check with a proof.
+    #
+    # The customer tier goes LAST, deliberately. On a tie, never blame the
+    # shopper's standing -- that is the socially expensive message, and it
+    # should only appear when their band is genuinely the sole binding rule.
+    ceilings: list[tuple[int, BoundsCode]] = []
+    if i.product_cap_bps is not None:
+        ceilings.append((i.product_cap_bps, BoundsCode.OK_CLAMPED_PRODUCT_CAP))
+    ceilings += [
         (i.slot_ceiling_bps, BoundsCode.OK_CLAMPED_SLOT_CEILING),
         (i.campaign_max_discount_bps, BoundsCode.OK_CLAMPED_CAMPAIGN_CEILING),
         (margin_ceiling, BoundsCode.OK_CLAMPED_MARGIN_FLOOR),
         (budget_ceiling, BoundsCode.OK_CLAMPED_BUDGET),
     ]
+    if i.customer_cap_bps is not None:
+        ceilings.append((i.customer_cap_bps, BoundsCode.OK_CLAMPED_CUSTOMER_TIER))
     max_allowed = min(c for c, _ in ceilings)
 
     wanted = max(0, min(i.proposed_bps, MAX_BPS))
@@ -220,11 +247,30 @@ def check(i: BoundsInput) -> Decision:
         binding = BINDING[code]
         reason = (
             f"Model proposed {_pct(i.proposed_bps)}; clamped to {_pct(granted)} by "
-            f"{binding}. Ceilings: slot {_pct(i.slot_ceiling_bps)}, campaign "
-            f"{_pct(i.campaign_max_discount_bps)}, margin {_pct(margin_ceiling)}, "
-            f"budget {_pct(budget_ceiling)}."
+            f"{binding}. Ceilings: "
+            + (f"product {_pct(i.product_cap_bps)}, "
+               if i.product_cap_bps is not None else "")
+            + f"slot {_pct(i.slot_ceiling_bps)}, campaign "
+              f"{_pct(i.campaign_max_discount_bps)}, margin {_pct(margin_ceiling)}, "
+              f"budget {_pct(budget_ceiling)}"
+            + (f", customer {_pct(i.customer_cap_bps)}"
+               if i.customer_cap_bps is not None else "")
+            + "."
         )
-        customer = f"The best this code allows is {_pct(granted)} off."
+        if code is BoundsCode.OK_CLAMPED_CUSTOMER_TIER:
+            # Never say "because you are new" and never quote the band's
+            # ceiling. The first is a bad thing to tell someone standing in
+            # your shop; the second hands them the number to divide.
+            #
+            # This is also the one clamp that should read as an invitation
+            # rather than a wall -- the whole point of the band is that it is
+            # reachable, so the sentence says how.
+            customer = (
+                f"{_pct(granted)} off is the best I can do today -- "
+                "shop here a few more times and I can do better."
+            )
+        else:
+            customer = f"The best this code allows is {_pct(granted)} off."
 
     discount = i.gross_paise * granted // MAX_BPS
     return Decision(
