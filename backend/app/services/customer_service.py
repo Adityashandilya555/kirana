@@ -242,6 +242,31 @@ def effective_cap_bps(product_cap_bps: int, cap_fraction_bps: int) -> int:
     return product_cap_bps * fraction // MAX_BPS
 
 
+def caps_for_item(
+    cap_bps: int | None, tier_cap_fraction_bps: int | None
+) -> tuple[int | None, int | None]:
+    """The two committed ceilings for one product, as bounds.check wants them.
+
+    THE single derivation. Four places gate an offer -- the human turn, the
+    upsell, the accept re-gate, and the machine-buyer quote -- and two of them
+    hold typed objects while two hold raw rpc dicts. Without one function they
+    would each grow their own arithmetic, and a divergence is a discount an AI
+    buyer could get that a human could not, which agent_commerce.py names as
+    the exact failure this project exists to prevent.
+
+    Returns (None, None) when the campaign predates per-product caps, which is
+    what makes those campaigns behave exactly as they always have.
+    """
+    if cap_bps is None:
+        return None, None
+    fraction = MAX_BPS if tier_cap_fraction_bps is None else tier_cap_fraction_bps
+    customer = effective_cap_bps(cap_bps, fraction)
+    # A band that reduces nothing is not worth naming as the binding rule: it
+    # would blame the shopper's standing for a ceiling their standing did not
+    # cause.
+    return cap_bps, (customer if customer < cap_bps else None)
+
+
 def standing_phrase(stats: CustomerStats) -> str:
     """How the assistant is allowed to describe someone, out loud.
 
