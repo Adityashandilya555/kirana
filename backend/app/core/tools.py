@@ -32,6 +32,7 @@ from langchain_core.tools import BaseTool, tool
 
 from app.core import bounds
 from app.core.bounds import BoundsInput, Decision
+from app.services import customer_service
 
 MAX_QTY = bounds.MAX_QTY
 
@@ -76,6 +77,18 @@ class OfferContext:
     reserved_paise: int = 0
     turn_count: int = 0
     max_turns: int = 6
+
+    #: The band this shopper was placed in when the session opened, and the
+    #: numbers it was decided from. Read from the session snapshot, never
+    #: recomputed mid-conversation -- a tier that moves while someone is
+    #: haggling is not a rule, it is a mood.
+    #:
+    #: cap_fraction_bps is deliberately NOT exposed by any tool. It is a
+    #: ceiling multiplier: a shopper who knows it and can observe one granted
+    #: number recovers the product's cap by dividing.
+    tier_key: str = "new"
+    tier_cap_fraction_bps: int = 10_000
+    tier_stats: dict[str, Any] = field(default_factory=dict)
 
     calls: list[ToolCall] = field(default_factory=list)
     #: The last gate verdict, approved or not. chat_service reads this rather
@@ -376,9 +389,41 @@ def build_tools(ctx: OfferContext) -> tuple[list[BaseTool], dict[str, BaseTool]]
         }
         return _record("suggest_addon", args, _json(payload))
 
+    @tool
+    def get_customer_standing() -> str:
+        """How well this shopper is known at this shop.
+
+        Call this before offering a first price. A regular may be treated a
+        little more generously than a stranger. Returns a description, never a
+        percentage.
+        """
+        stats = customer_service.CustomerStats.from_snapshot(ctx.tier_stats)
+        payload = {
+            "identified": stats.identified,
+            "standing": customer_service.standing_phrase(stats),
+            # A band name, not a number. The model is told WHO it is talking
+            # to, never WHAT they are worth -- the arithmetic that turns a band
+            # into a ceiling happens in the gate, after the model has proposed.
+            "band": ctx.tier_key,
+            "visits": (
+                # Coarse on purpose. An exact count plus an observed grant is
+                # two points on a line, and a shopper can extrapolate it.
+                "several" if stats.txn_count >= 3
+                else "a few" if stats.txn_count >= 1
+                else "none yet"
+            ),
+            "guidance": (
+                "This is a regular. You may open a little more generously, but "
+                "still start low and let them ask."
+                if ctx.tier_key == "preferred"
+                else "Treat as a new shopper. Start low."
+            ),
+        }
+        return _record("get_customer_standing", {}, _json(payload))
+
     tools: list[BaseTool] = [
         list_catalog, find_item, get_item_detail, price_quote, propose_offer,
-        suggest_addon,
+        suggest_addon, get_customer_standing,
     ]
     return tools, {t.name: t for t in tools}
 

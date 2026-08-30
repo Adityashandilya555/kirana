@@ -1,16 +1,26 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MerchantShell from '../../components/MerchantShell'
-import { Button, Card, Field, Money, inputClass } from '../../components/ui'
+import { Button, Callout, Card, Field, Money, inputClass } from '../../components/ui'
 import {
   adviseCampaign,
   commitCampaign,
   createCampaign,
   getCatalog,
   getShelves,
+  setCampaignTier,
   simulate,
 } from '../../lib/merchant'
 import type { Advice, CatalogItem, Shelf, Simulation } from '../../lib/merchant'
+
+/** Days, because "three weeks" is just 21 and a shopkeeper who wants 45 should
+ *  not need a migration. null is lifetime. */
+const WINDOWS: Record<string, number | null> = {
+  '3 weeks': 21,
+  'last month': 30,
+  '3 months': 90,
+  lifetime: null,
+}
 
 /** The advisor names fields by their API key; the form names them in rupees
  *  and percents. Map once so its notes read like the labels above them. */
@@ -50,6 +60,12 @@ export default function NewCampaignPage() {
   const [simError, setSimError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [tierOn, setTierOn] = useState(false)
+  const [minTxn, setMinTxn] = useState('3')
+  const [minSpend, setMinSpend] = useState('1000')
+  const [windowKey, setWindowKey] = useState('last month')
+  const [basePct, setBasePct] = useState('50')
 
   const [advice, setAdvice] = useState<Advice | null>(null)
   const [advising, setAdvising] = useState(false)
@@ -142,6 +158,18 @@ export default function NewCampaignPage() {
         slot_count: slots,
         slot_binding: binding,
       })
+      // Between create and commit: the rule is draft-only, and commit is what
+      // freezes it alongside the ceilings.
+      if (tierOn) {
+        await setCampaignTier(campaign.id, {
+          min_txn_count: parseInt(minTxn || '0', 10) || 0,
+          min_spend_paise: Math.round(parseFloat(minSpend || '0') * 100) || 0,
+          window_days: WINDOWS[windowKey] ?? null,
+          base_cap_fraction_bps: Math.round(
+            (parseInt(basePct || '100', 10) || 100) * 100,
+          ),
+        })
+      }
       const committed = await commitCampaign(campaign.id, targetList)
       navigate(`/merchant/${committed.id}?committed=1`)
     } catch (e) {
@@ -235,6 +263,74 @@ export default function NewCampaignPage() {
               <input className={inputClass} inputMode="numeric" value={maxTurns}
                      onChange={(e) => setMaxTurns(e.target.value)} />
             </Field>
+          </Card>
+
+          {/* -------------------------------------------- regulars --- */}
+          {/* Recorded but not yet spent: from here every scan is placed in a
+              band and the reason is written to the log, and nothing reads it
+              when pricing. That is on purpose -- watch who your rule actually
+              catches before it starts costing you margin. */}
+          <Card>
+            <p className="mb-1 text-sm font-medium">Do your regulars get more?</p>
+            <p className="mb-3 text-xs leading-relaxed text-ink-soft">
+              Customers who meet this get the full discount your margin allows.
+              Everyone else gets a share of it. Leave it off and everyone is
+              treated the same.
+            </p>
+
+            <label className="flex items-center gap-2 text-mini">
+              <input
+                type="checkbox"
+                checked={tierOn}
+                onChange={(e) => setTierOn(e.target.checked)}
+              />
+              Treat regulars better
+            </label>
+
+            {tierOn && (
+              <div className="mt-3 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  {/* BOTH must be met -- the rule is an AND, in the SQL and
+                      here. Set either to 0 to ignore it, which is how you get
+                      "just visits" or "just spend" without a second control. */}
+                  <Field label="At least this many purchases" hint="Set 0 to ignore.">
+                    <input className={inputClass} inputMode="numeric" value={minTxn}
+                           onChange={(e) => setMinTxn(e.target.value)} />
+                  </Field>
+                  <Field label="And spent at least (₹)" hint="Set 0 to ignore.">
+                    <input className={inputClass} inputMode="decimal" value={minSpend}
+                           onChange={(e) => setMinSpend(e.target.value)} />
+                  </Field>
+                </div>
+
+                <Field label="Counted over" hint="How far back to look.">
+                  <select
+                    className={inputClass}
+                    value={windowKey}
+                    onChange={(e) => setWindowKey(e.target.value)}
+                  >
+                    {Object.keys(WINDOWS).map((k) => (
+                      <option key={k} value={k}>{k}</option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field
+                  label="Everyone else gets (% of the full discount)"
+                  hint={`A product that allows 16% off would give ${
+                    ((16 * (parseInt(basePct || '0', 10) || 0)) / 100).toFixed(1)
+                  }% to a new customer.`}
+                >
+                  <input className={inputClass} inputMode="numeric" value={basePct}
+                         onChange={(e) => setBasePct(e.target.value)} />
+                </Field>
+
+                <Callout tone="neutral">
+                  Bands are recorded from now on but do not change any price yet
+                  — you will see who qualifies in the campaign log first.
+                </Callout>
+              </div>
+            )}
           </Card>
 
           {/* ------------------------------------------------- binding -- */}
