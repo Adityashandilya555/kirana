@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import MerchantShell from '../../components/MerchantShell'
-import { Card, Eyebrow, Money, Pct, Pill, Stat } from '../../components/ui'
-import { getAudit, getSessionAudit, qrSheetUrl } from '../../lib/merchant'
-import type { AuditRow, Campaign, SessionAudit } from '../../lib/merchant'
-import { OUTCOME_PLAIN, pct, plainRow } from '../../lib/plainLanguage'
+import { Button, Card, Eyebrow, Money, Pct, Pill, Stat } from '../../components/ui'
+import { getAudit, getPostmortem, getSessionAudit, qrSheetUrl } from '../../lib/merchant'
+import type { AuditRow, Campaign, Postmortem, SessionAudit } from '../../lib/merchant'
+import { OUTCOME_PLAIN, pct, plainLimit, plainRow } from '../../lib/plainLanguage'
 
 /**
  * The live log, grouped into conversations.
@@ -300,6 +300,23 @@ export default function CampaignDetailPage() {
   // click away, but a shopkeeper opening this page should not have to read
   // past them to find out whether anyone bought anything.
   const [showTech, setShowTech] = useState(false)
+
+  const [postmortem, setPostmortem] = useState<Postmortem | null>(null)
+  const [pmBusy, setPmBusy] = useState(false)
+  const [pmError, setPmError] = useState<string | null>(null)
+
+  async function loadPostmortem() {
+    if (!campaignId) return
+    setPmBusy(true)
+    setPmError(null)
+    try {
+      setPostmortem(await getPostmortem(campaignId))
+    } catch (e) {
+      setPmError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setPmBusy(false)
+    }
+  }
   const [openScope, setOpenScope] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const cursor = useRef(0)
@@ -447,6 +464,68 @@ export default function CampaignDetailPage() {
           </div>
         </div>
       )}
+
+      {/* ------------------------------------------------------ debrief -- */}
+      {/* On demand, not on load: this one calls a model, and a campaign page
+          that quietly spends an LLM call every 1.5s alongside the poll would
+          be a bill nobody asked for. */}
+      <Card className="mb-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-mini font-semibold text-ink">How is this campaign doing?</p>
+            <p className="mt-0.5 text-tiny leading-relaxed text-ink-soft">
+              A short read of the numbers above — what the limits cost you, which
+              one bit most often, and what to change next time.
+            </p>
+          </div>
+          <Button variant="ghost" onClick={() => void loadPostmortem()} disabled={pmBusy}>
+            {pmBusy ? 'Reading…' : postmortem ? 'Refresh' : 'Explain this campaign'}
+          </Button>
+        </div>
+
+        {pmError && <p className="mt-3 text-tiny leading-relaxed text-fail">{pmError}</p>}
+
+        {postmortem && (
+          <div className="mt-4 space-y-3">
+            {postmortem.summary ? (
+              // Whitespace preserved: the model is asked for three short
+              // paragraphs and they arrive newline-separated.
+              <p className="whitespace-pre-line text-mini leading-relaxed text-ink">
+                {postmortem.summary}
+              </p>
+            ) : (
+              <p className="text-mini leading-relaxed text-ink-soft">
+                The assistant could not be reached, so there is no write-up — but
+                every figure below is counted, not written, so they are all still
+                correct.
+              </p>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Stat
+                label="Given away"
+                value={<Money paise={postmortem.figures.spent_paise} />}
+                sub={`${postmortem.figures.spent_pct}% of the budget`}
+              />
+              <Stat
+                label="Stickers used"
+                value={`${postmortem.figures.slots_redeemed}/${postmortem.figures.slots_total}`}
+                sub={`${postmortem.figures.slots_verified} checked at the counter`}
+              />
+              <Stat
+                label="Held down"
+                value={postmortem.figures.clamped_count}
+                tone={postmortem.figures.clamped_count > 0 ? 'text-warn' : ''}
+                sub={
+                  postmortem.figures.most_common_bind
+                    ? `most often by ${plainLimit(postmortem.figures.most_common_bind)}`
+                    : 'nothing had to be held back'
+                }
+              />
+            </div>
+          </div>
+        )}
+      </Card>
 
       {/* --------------------------------------------- the failure gallery -- */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
