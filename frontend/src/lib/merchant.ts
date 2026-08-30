@@ -200,6 +200,62 @@ export const simulate = (body: {
   slot_count: number
 }) => apiPost<Simulation>('/api/v1/simulate', body, true)
 
+// -------------------------------------------------------------- advisor --
+/** The four numbers the assistant proposes, in the same units the form uses. */
+export interface AdviceProposal {
+  max_discount_bps: number
+  margin_floor_bps: number
+  budget_paise: number
+  slot_count: number
+}
+
+export interface Advice {
+  proposal: AdviceProposal
+  /** Free-form per-field notes from the model. Shape is not guaranteed, so it
+   *  is rendered defensively rather than destructured. */
+  reasoning: Record<string, unknown>
+  /** The proposal run through the same simulator the form uses. This is the
+   *  half that is checked rather than generated, so it is what gets shown. */
+  simulation: Simulation
+  rounds: number
+  note: string
+}
+
+/** 503 when no provider answers, 422 when the shop has no products yet. */
+export const adviseCampaign = () =>
+  apiPost<Advice>('/api/v1/campaigns/advise', {}, true)
+
+export interface PostmortemFigures {
+  budget_paise: number
+  spent_paise: number
+  unspent_paise: number
+  spent_pct: number
+  slots_total: number
+  slots_redeemed: number
+  slots_verified: number
+  conversations: number
+  decisions: number
+  clamped_count: number
+  most_common_bind: string | null
+  avg_asked_bps: number
+  avg_granted_bps: number
+  bound_sticker_sessions: number
+  kinds: Record<string, number>
+  binding_counts: Record<string, number>
+}
+
+export interface Postmortem {
+  campaign: { id: string; name: string; status: string }
+  figures: PostmortemFigures
+  /** Null when no LLM answered. Every figure above is still computed, so the
+   *  panel degrades to numbers without sentences rather than disappearing. */
+  summary: string | null
+  summary_available: boolean
+}
+
+export const getPostmortem = (id: string) =>
+  apiGet<Postmortem>(`/api/v1/campaigns/${id}/postmortem`, true)
+
 // ------------------------------------------------------------------ audit --
 export interface AuditRow {
   id: number

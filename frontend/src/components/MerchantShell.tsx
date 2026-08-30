@@ -85,6 +85,19 @@ function IconNew({ className = ico }: IconProps) {
   )
 }
 
+function IconAgent({ className = ico }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="4" y="8" width="16" height="12" rx="2" />
+      <path d="M12 4v4" />
+      <circle cx="12" cy="3" r="1" />
+      <path d="M9 13h.01M15 13h.01" />
+      <path d="M9.5 17h5" />
+    </svg>
+  )
+}
+
 function IconVerify({ className = ico }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -137,6 +150,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       { to: '/merchant', label: 'Campaigns', hint: 'Running and past promotions', icon: IconCampaigns, end: true, key: 'campaigns' },
       { to: '/merchant/catalog', label: 'Products', hint: 'Prices, costs and margins', icon: IconProducts, key: 'products' },
       { to: '/merchant/shelves', label: 'Shelves', hint: 'Group products for stickers', icon: IconShelves, key: 'shelves' },
+      { to: '/merchant/agent', label: 'AI shoppers', hint: "Let other people's assistants buy from you", icon: IconAgent },
     ],
   },
   {

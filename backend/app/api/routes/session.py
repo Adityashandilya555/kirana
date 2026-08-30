@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import DbDep
 from app.core.db import RpcError
-from app.services import chat_service
+from app.services import chat_service, customer_service
 
 router = APIRouter(prefix="/api/v1", tags=["session"])
 
@@ -28,6 +28,11 @@ class OpenSession(BaseModel):
     slot_token: str = Field(min_length=4, max_length=32)
     transport: str = Field(default="web", pattern="^(web|telegram)$")
     transport_ref: str | None = None
+    #: Optional, and optional on purpose. A shopper who will not give a number
+    #: still gets to haggle -- they simply cannot be recognised as a returning
+    #: customer, so they are treated as new. Refusing to serve them would be a
+    #: worse shop than one that does not know who they are.
+    phone: str | None = Field(default=None, max_length=24)
 
 
 def public_context(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -93,17 +98,33 @@ async def open_session(body: OpenSession, db: DbDep) -> dict:
     same session with its transcript, and the partial unique index on
     sessions(slot_id) makes a second live row impossible anyway.
     """
+    # Normalised here rather than in SQL so the rule is one pure function with
+    # its own tests. A number that will not fold is dropped, not rejected: the
+    # shopper still gets a session, just an unidentified one.
+    phone_e164 = customer_service.normalize_phone(body.phone)
+
     try:
         result = await chat_service.open_session(
             db, body.slot_token, transport=body.transport,
-            transport_ref=body.transport_ref,
+            transport_ref=body.transport_ref, phone_e164=phone_e164,
         )
     except RpcError as exc:
         raise _rpc_http(exc) from exc
 
+    customer = result.get("customer") or {}
     return {
         "session_id": result["session_id"],
         "resumed": result.get("resumed", False),
+        # Echoed back so the phone can say "welcome back" -- and deliberately
+        # only the last four digits, never the number the browser just sent.
+        "customer": {
+            "identified": bool(customer.get("id")),
+            "phone_last4": customer.get("phone_last4"),
+            "returning": bool(customer.get("returning")),
+        },
+        # True when a number was supplied and could not be read. The UI uses
+        # this to say so rather than silently treating them as a stranger.
+        "phone_unreadable": bool(body.phone) and phone_e164 is None,
         **public_context(result["context"]),
     }
 

@@ -27,8 +27,14 @@ db-up: ## Start a local Postgres 16 for schema work
 	@until docker exec $(PG) pg_isready -U postgres -d kirana >/dev/null 2>&1; do sleep 0.5; done
 	@echo "postgres ready"
 
-db-apply: ## Apply sql/*.sql to the local Postgres
-	@for f in sql/001_schema.sql sql/002_functions.sql sql/003_seed.sql; do \
+# Every numbered migration, in order. This used to list 001/002/003 by hand,
+# which meant 004 through 011 had never run against a local database and the
+# integration tests were validating a schema several migrations behind
+# production. Globbing is what keeps the two honest as more are added.
+# all_in_one.sql is deliberately excluded: it is a stale Phase-0 snapshot that
+# later files supersede, and replaying it would undo them.
+db-apply: ## Apply every sql/NNN_*.sql to the local Postgres, in order
+	@for f in $$(ls sql/[0-9][0-9][0-9]_*.sql | sort); do \
 	  docker exec -i $(PG) psql -U postgres -d kirana -v ON_ERROR_STOP=1 -q < $$f \
 	    && echo "OK    $$f" || { echo "FAIL  $$f"; exit 1; }; \
 	done
