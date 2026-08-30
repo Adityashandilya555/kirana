@@ -22,6 +22,10 @@ import type { AcceptedOrder } from '../lib/razorpay'
  * prose and the gate ever disagree, the number the shopper can act on is the
  * gate's.
  */
+/** Where this device remembers the shopper's number, so a reload during a
+ *  haggle does not stop to ask again. Their own number, their own phone. */
+const PHONE_KEY = 'kirana.phone'
+
 export default function SlotPage() {
   const { token } = useParams<{ token: string }>()
   const [session, setSession] = useState<SessionPayload | null>(null)
@@ -32,16 +36,21 @@ export default function SlotPage() {
   const [fatal, setFatal] = useState<{ code: string; message: string } | null>(null)
   const [manual, setManual] = useState('')
   const [paying, setPaying] = useState(false)
+  const [phone, setPhone] = useState('')
+  const [started, setStarted] = useState(false)
   const navigate = useNavigate()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
-  const open = useCallback(async (slotToken: string) => {
+  const open = useCallback(async (slotToken: string, phoneNumber: string) => {
     setFatal(null)
     try {
       const payload = await apiPost<SessionPayload>('/api/v1/sessions', {
         slot_token: slotToken,
+        // Omitted entirely when skipped, so the backend can tell "declined"
+        // from "typed something unreadable".
+        ...(phoneNumber.trim() ? { phone: phoneNumber.trim() } : {}),
       })
       setSession(payload)
       setTurns(payload.transcript ?? [])
@@ -56,9 +65,42 @@ export default function SlotPage() {
     }
   }, [])
 
+  /*
+   * The number is asked once, before the chat exists, and remembered on this
+   * device so a reload does not interrogate someone mid-haggle. It is kept
+   * here and nowhere else -- it goes to the shop to identify a returning
+   * customer and is never shown back, never put in the transcript, and never
+   * reaches the model.
+   */
   useEffect(() => {
-    if (token) void open(token)
-  }, [token, open])
+    if (!token || started) return
+    let remembered = ''
+    try {
+      remembered = localStorage.getItem(PHONE_KEY) ?? ''
+    } catch {
+      // Private browsing throws on access. A shopper who cannot be remembered
+      // is simply asked, which is the same as a first visit.
+    }
+    if (remembered) {
+      setPhone(remembered)
+      setStarted(true)
+      void open(token, remembered)
+    }
+  }, [token, started, open])
+
+  function beginWith(value: string) {
+    if (!token) return
+    const trimmed = value.trim()
+    if (trimmed) {
+      try {
+        localStorage.setItem(PHONE_KEY, trimmed)
+      } catch {
+        // Not being able to remember is not a reason to refuse to start.
+      }
+    }
+    setStarted(true)
+    void open(token, trimmed)
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
@@ -176,7 +218,9 @@ export default function SlotPage() {
           onSubmit={(e) => {
             e.preventDefault()
             const t = manual.trim().toUpperCase()
-            if (t) void open(t)
+            // Retyping a code keeps whoever we already know is holding the
+            // phone; this is a wrong-sticker recovery, not a new shopper.
+            if (t) void open(t, phone)
           }}
           className="flex gap-2"
         >
@@ -210,6 +254,73 @@ export default function SlotPage() {
             debugging from the phone, so it stays, just quietly. */}
         <p className="text-[11px] text-ink-soft/70">
           Reached the shop’s server ({fatal.code}).
+        </p>
+      </main>
+    )
+  }
+
+  /*
+   * The doorstep. Asked once, before the assistant exists, because a shop
+   * that recognises its regulars has to know who is at the counter before it
+   * starts quoting prices -- and because asking mid-haggle would read as a
+   * price that depends on whether you hand over your number.
+   *
+   * Skipping is a first-class answer, not a dark pattern to be nagged past.
+   * A shopper who declines still haggles; they are simply treated as new.
+   */
+  if (!started) {
+    return (
+      <main className="mx-auto flex h-dvh max-w-md flex-col justify-center gap-6 p-6">
+        <div>
+          <h1 className="font-display text-[26px] font-bold leading-tight tracking-[-0.02em] text-ink">
+            Before we start
+          </h1>
+          <p className="mt-2 text-half leading-relaxed text-ink-soft">
+            Your number lets the shop recognise you. Regulars here get better
+            prices than first-time visitors.
+          </p>
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            beginWith(phone)
+          }}
+          className="space-y-3"
+        >
+          <label htmlFor="phone" className="block text-half font-semibold text-ink">
+            Mobile number
+          </label>
+          <input
+            id="phone"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="98765 43210"
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel"
+            className="w-full rounded-xl border border-hairline bg-card px-3.5 py-3 font-mono text-base tracking-wide text-ink outline-none transition-colors focus:border-accent"
+          />
+          <button
+            type="submit"
+            disabled={!phone.trim()}
+            className="w-full rounded-xl bg-accent px-4 py-3 text-half font-semibold text-white transition-colors hover:bg-accent-strong disabled:bg-sunk disabled:text-ink-faint"
+          >
+            Start
+          </button>
+        </form>
+
+        <button
+          type="button"
+          onClick={() => beginWith('')}
+          className="text-half text-ink-soft underline underline-offset-2 transition-colors hover:text-accent"
+        >
+          Skip — just show me the price
+        </button>
+
+        <p className="text-tiny leading-relaxed text-ink-faint">
+          Used only to recognise you at this shop. It is never shown to the
+          assistant you are about to talk to.
         </p>
       </main>
     )

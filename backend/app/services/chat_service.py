@@ -40,13 +40,21 @@ BLOCKED_REPLY = (
 
 async def open_session(
     db: DbBackend, slot_token: str, *, transport: str = "web",
-    transport_ref: str | None = None,
+    transport_ref: str | None = None, phone_e164: str | None = None,
 ) -> dict[str, Any]:
-    """Resolve a scanned token to a session. Idempotent: a reload resumes."""
+    """Resolve a scanned token to a session. Idempotent: a reload resumes.
+
+    With a phone, "resume" means this customer's negotiation on this sticker.
+    Without one it means the sticker's unidentified negotiation, which is
+    exactly the old behaviour. The two live under separate partial unique
+    indexes so a shared shelf sticker can carry several conversations at once
+    without any of them seeing another's transcript.
+    """
     return await db.rpc("open_session_by_token", {
         "p_slot_token": slot_token,
         "p_transport": transport,
         "p_transport_ref": transport_ref,
+        "p_phone_e164": phone_e164,
     })
 
 

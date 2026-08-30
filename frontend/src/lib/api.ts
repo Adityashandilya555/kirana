@@ -87,6 +87,16 @@ export interface SessionPayload {
   merchant: { name: string; store_line: string }
   catalog: CatalogItem[]
   transcript: Turn[]
+  /** Only ever the last four digits — the number the browser sent is never
+   *  echoed back, so a shared screen cannot leak it. */
+  customer: {
+    identified: boolean
+    phone_last4: string | null
+    returning: boolean
+  }
+  /** A number was given and could not be read. The page says so rather than
+   *  silently treating a returning customer as a stranger. */
+  phone_unreadable: boolean
 }
 
 export interface Offer {
