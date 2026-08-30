@@ -39,6 +39,11 @@ CONFLICT_CODES = {
 BAD_REQUEST_CODES = {
     "CEILING_VIOLATION", "CAMPAIGN_MAX_VIOLATION", "BUDGET_EXCEEDED",
     "AMOUNT_MISMATCH", "BELOW_MIN_ORDER_AMOUNT", "CAMPAIGN_NOT_LIVE",
+    # The database's own re-check of what bounds.check() already refused.
+    # Reaching the client at all means Python and SQL disagreed about the same
+    # order, which is worth a loud 400 rather than a quiet success -- these
+    # should be unreachable, and the day one is not is the day to know.
+    "PRODUCT_CAP_VIOLATION", "CUSTOMER_TIER_VIOLATION", "MARGIN_FLOOR_VIOLATION",
 }
 NOT_FOUND_CODES = {"SESSION_NOT_FOUND", "ORDER_NOT_FOUND"}
 
