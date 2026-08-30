@@ -279,3 +279,75 @@ export function policyHash(
   });
   return sha256Hex(new TextEncoder().encode(payload));
 }
+
+/* ====================================================== per-product caps ==
+ *
+ * Twin of the block at the bottom of backend/app/core/merkle.py. A second
+ * tree, over the ceiling each PRODUCT was committed to, alongside the existing
+ * one over what each STICKER may offer.
+ *
+ * buildTree, proofFor and verifyProofWalk above are reused unchanged -- they
+ * are generic over leaf hashes. Only the preimage differs, and the separate
+ * domain string is what stops a cap leaf being replayed as a slot leaf even
+ * though both carry the 0x00 prefix.
+ *
+ * tests/fixtures/cap_vectors.json pins this file and its Python twin to the
+ * same bytes. If they drift, the second proof walk fails on a shopper's phone
+ * and neither test suite notices on its own -- each is internally consistent.
+ */
+
+export const CAP_DOMAIN = "kirana.caps.v1";
+
+export function capLeafPreimage(
+  campaignId: string,
+  rowIndex: number,
+  sku: string,
+  capBps: number,
+  saltHex: string,
+): Uint8Array {
+  if (!(capBps >= 0 && capBps <= 10000)) {
+    throw new Error(`capBps out of range: ${capBps}`);
+  }
+  if (rowIndex < 0) throw new Error(`rowIndex must be non-negative: ${rowIndex}`);
+  for (const [name, value] of [
+    ["campaignId", campaignId],
+    ["sku", sku],
+    ["saltHex", saltHex],
+  ] as const) {
+    if (value.includes("|")) throw new Error(`${name} must not contain a pipe`);
+  }
+  const joined = [CAP_DOMAIN, campaignId, String(rowIndex), sku, String(capBps), saltHex].join("|");
+  return new TextEncoder().encode(joined);
+}
+
+export function capLeafHash(
+  campaignId: string,
+  rowIndex: number,
+  sku: string,
+  capBps: number,
+  saltHex: string,
+): Promise<string> {
+  return hashLeaf(capLeafPreimage(campaignId, rowIndex, sku, capBps, saltHex));
+}
+
+export function tierHash(
+  campaignId: string,
+  tierMinTxnCount: number,
+  tierMinSpendPaise: number,
+  /** null is lifetime, and hashes differently from 0 -- they are different
+   *  promises: "ever" versus "a window nothing can fall inside". */
+  tierWindowDays: number | null,
+  baseCapFractionBps: number,
+): Promise<string> {
+  // Key order must match Python's `sort_keys=True`. JSON.stringify preserves
+  // null, which is what keeps the lifetime case distinct.
+  const payload = JSON.stringify({
+    base_cap_fraction_bps: baseCapFractionBps,
+    campaign_id: campaignId,
+    domain: CAP_DOMAIN,
+    tier_min_spend_paise: tierMinSpendPaise,
+    tier_min_txn_count: tierMinTxnCount,
+    tier_window_days: tierWindowDays,
+  });
+  return sha256Hex(new TextEncoder().encode(payload));
+}

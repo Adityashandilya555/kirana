@@ -55,6 +55,12 @@ class CommitBody(BaseModel):
 
     targets: list[str] = Field(default_factory=list)
 
+    #: 'tiered' keeps the old per-sticker ceilings from plan_ceilings and
+    #: commits nothing per product -- byte-identical to before caps existed,
+    #: which is why it is the default. 'margin' additionally freezes a ceiling
+    #: for every product, derived from the margin floor, under its own root.
+    ceiling_mode: str = Field(default="tiered", pattern="^(tiered|margin)$")
+
 
 def _rpc_http(exc: RpcError) -> HTTPException:
     conflicts = {
@@ -138,11 +144,23 @@ async def commit_campaign(
 
     try:
         result = await campaign_service.commit_campaign(
-            db, campaign_id, binding=binding, targets=targets
+            db, campaign_id, binding=binding, targets=targets,
+            ceiling_mode=(body.ceiling_mode if body else "tiered"),
         )
     except RpcError as exc:
         raise _rpc_http(exc) from exc
     except ValueError as exc:
+        # NO_PRODUCTS is its own answer: margin mode with an empty catalogue
+        # has nothing to derive a ceiling from, and saying "campaign not
+        # found" would send the shopkeeper looking in the wrong place.
+        if str(exc) == "NO_PRODUCTS":
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "NO_PRODUCTS",
+                        "message": "Add some products before committing a "
+                                   "margin-based campaign — there is nothing "
+                                   "to work out a ceiling from."},
+            ) from exc
         raise HTTPException(status_code=404,
                             detail={"code": str(exc), "message": "Campaign not found."}) from exc
     campaign = result["campaign"]

@@ -34,6 +34,86 @@ CEILING_ROUNDING_BPS = 50
 
 
 @dataclass(frozen=True)
+class CapSpec:
+    """One product's committed ceiling, and the numbers it was derived from.
+
+    `price_paise` / `cost_paise` / `margin_floor_bps` are stored but are NOT in
+    the leaf preimage. They are kept so a merchant can show an auditor how a
+    cap was arrived at; they stay out of the leaf because leaves get opened at
+    redemption, and opening one would publish item cost to every shopper who
+    ever verifies a code.
+    """
+
+    row_index: int
+    sku: str
+    cap_bps: int
+    price_paise: int
+    cost_paise: int
+    margin_floor_bps: int
+    salt_hex: str
+    leaf_hash: str
+
+    def to_row(self, proof: list[merkle.ProofStep]) -> dict[str, Any]:
+        return {
+            "row_index": self.row_index,
+            "sku": self.sku,
+            "cap_bps": self.cap_bps,
+            "price_paise": self.price_paise,
+            "cost_paise": self.cost_paise,
+            "margin_floor_bps": self.margin_floor_bps,
+            "salt_hex": self.salt_hex,
+            "leaf_hash": self.leaf_hash,
+            "proof": proof,
+        }
+
+
+def plan_product_caps(
+    campaign_id: str,
+    catalog: list[dict[str, Any]],
+    margin_floor_bps: int,
+    max_discount_bps: int,
+) -> list[CapSpec]:
+    """Freeze the per-product ceiling the simulator has always shown.
+
+    This deliberately calls `simulate.item_headroom` rather than reimplementing
+    `min(margin_ceiling, campaign_max)`. The number a shopkeeper reads in the
+    preview before committing and the number the gate enforces afterwards have
+    to be the same number, and the cheapest way to guarantee that is for there
+    to be only one of them.
+
+    Sorted by sku so `row_index` is a pure function of the catalog rather than
+    of dictionary ordering -- otherwise the same shop could commit to two
+    different roots for identical inputs.
+    """
+    # Imported here rather than at module scope: simulate imports this module
+    # for plan_ceilings, and a top-level import would be circular.
+    from app.services import simulate
+
+    specs: list[CapSpec] = []
+    for index, item in enumerate(sorted(catalog, key=lambda c: c["sku"].upper())):
+        head = simulate.item_headroom(
+            int(item["price_paise"]), int(item["cost_paise"]),
+            margin_floor_bps, max_discount_bps,
+        )
+        sku = item["sku"].upper()
+        salt = ids.new_salt_hex()
+        cap = int(head["max_discount_bps"])
+        specs.append(
+            CapSpec(
+                row_index=index,
+                sku=sku,
+                cap_bps=cap,
+                price_paise=int(item["price_paise"]),
+                cost_paise=int(item["cost_paise"]),
+                margin_floor_bps=margin_floor_bps,
+                salt_hex=salt,
+                leaf_hash=merkle.cap_leaf_hash(campaign_id, index, sku, cap, salt),
+            )
+        )
+    return specs
+
+
+@dataclass(frozen=True)
 class SlotSpec:
     leaf_index: int
     slot_token: str
@@ -176,8 +256,15 @@ async def create_campaign(
 async def commit_campaign(
     db: DbBackend, campaign_id: str,
     binding: str = "open", targets: list[str] | None = None,
+    ceiling_mode: str = "tiered",
 ) -> dict[str, Any]:
-    """Irreversible. Generates slots, freezes the root, stores every proof."""
+    """Irreversible. Generates slots, freezes the root, stores every proof.
+
+    `ceiling_mode='margin'` additionally freezes a per-product cap for every
+    item in the catalogue, under its own root. 'tiered' is the default and is
+    byte-identical to the behaviour before caps existed -- that default is what
+    lets this ship without touching the live campaign or any existing test.
+    """
     campaign = await db.rpc("get_campaign", {"p_campaign_id": campaign_id})
     if campaign is None:
         raise ValueError("CAMPAIGN_NOT_FOUND")
@@ -197,6 +284,40 @@ async def commit_campaign(
                 f"self-check failed for leaf {spec.leaf_index}; refusing to commit"
             )
 
+    cap_rows: list[dict[str, Any]] = []
+    cap_root: str | None = None
+    cap_tree_size: int | None = None
+
+    if ceiling_mode == "margin":
+        catalog = await db.rpc(
+            "list_catalog", {"p_merchant_id": campaign["merchant"]["id"]}
+        ) or []
+        active = [c for c in catalog if c.get("active", True)]
+        if not active:
+            raise ValueError("NO_PRODUCTS")
+
+        cap_specs = plan_product_caps(
+            campaign_id, active,
+            campaign["margin_floor_bps"], campaign["max_discount_bps"],
+        )
+        cap_tree = merkle.build_tree([c.leaf_hash for c in cap_specs])
+        cap_proofs = cap_tree.all_proofs()
+
+        # Same self-check, same reason: once cap_root is written it is a
+        # public promise, and a proof that does not verify here would be one
+        # a customer's phone could never reproduce.
+        for spec, proof in zip(cap_specs, cap_proofs, strict=True):
+            if not merkle.verify_proof(
+                spec.leaf_hash, spec.row_index, proof, cap_tree.root
+            ):
+                raise RuntimeError(
+                    f"cap self-check failed for row {spec.row_index}; refusing to commit"
+                )
+
+        cap_rows = [c.to_row(p) for c, p in zip(cap_specs, cap_proofs, strict=True)]
+        cap_root = cap_tree.root
+        cap_tree_size = cap_tree.tree_size
+
     result = await db.rpc(
         "commit_campaign",
         {
@@ -212,6 +333,20 @@ async def commit_campaign(
             ),
             "p_tree_size": tree.tree_size,
             "p_slots": [s.to_row(p) for s, p in zip(specs, proofs, strict=True)],
+            "p_caps": cap_rows,
+            "p_cap_root": cap_root,
+            "p_cap_tree_size": cap_tree_size,
+            # Committed even in tiered mode: the rule that scales the caps has
+            # to be frozen at the same moment they are, or a merchant could
+            # publish a root and then quietly move the qualifying line.
+            "p_tier_hash": merkle.tier_hash(
+                campaign_id,
+                int(campaign.get("tier_min_txn_count") or 0),
+                int(campaign.get("tier_min_spend_paise") or 0),
+                campaign.get("tier_window_days"),
+                int(campaign.get("base_cap_fraction_bps") or 10_000),
+            ),
+            "p_ceiling_mode": ceiling_mode,
         },
     )
     return {"commit": result, "campaign": await db.rpc(
