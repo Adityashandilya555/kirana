@@ -265,3 +265,116 @@ def policy_hash(
         separators=(",", ":"),
     )
     return _sha256_hex(payload.encode("utf-8"))
+
+
+# ======================================================== per-product caps ==
+#
+# A second commitment, over a second tree.
+#
+# The slot leaf above says "this sticker can never exceed X%". True and
+# checkable, but product-agnostic: the same sticker allows the same percentage
+# whether the shopper buys sugar, whose margin is thin, or tea, whose margin is
+# not. The sharper promise a merchant actually makes -- "this product never
+# goes below this margin" -- had nowhere to live.
+#
+# It gets its own tree rather than a wider slot leaf, for a concrete reason
+# rather than a stylistic one. Folding a sku or a cap into `leaf_preimage`
+# would change every hash in the system: it breaks the Python/TypeScript parity
+# fixture, and it invalidates the campaign already committed in production
+# whose QR sheet is a physical object on a table. sql/009_shelves.sql made this
+# exact argument when `bound_sku` was added, and declined for the same reason.
+#
+# `build_tree`, `proof` and `verify_proof` are reused unchanged -- they are
+# generic over leaf hashes and know nothing about what a leaf means. Only the
+# preimage differs, and the distinct domain string is what stops a cap leaf
+# being replayed as a slot leaf despite both carrying the 0x00 prefix. Same
+# second-preimage argument the module header makes about 0x00/0x01, one level
+# up.
+
+CAP_DOMAIN = "kirana.caps.v1"
+
+
+def cap_leaf_preimage(
+    campaign_id: str,
+    row_index: int,
+    sku: str,
+    cap_bps: int,
+    salt_hex: str,
+) -> bytes:
+    """Pipe-delimited, like the slot leaf, and for the same reason: two
+    implementations have to agree byte for byte.
+
+    Salted for the same reason too. A cap is a small integer out of ten
+    thousand, and an unsalted leaf could be brute-forced back to it -- which
+    would let a shopper read the merchant's committed ceiling off a public root
+    before opening their mouth.
+    """
+    if not (0 <= cap_bps <= 10_000):
+        raise ValueError(f"cap_bps out of range: {cap_bps}")
+    if row_index < 0:
+        raise ValueError(f"row_index must be non-negative: {row_index}")
+    for name, value in (
+        ("campaign_id", campaign_id),
+        ("sku", sku),
+        ("salt_hex", salt_hex),
+    ):
+        if "|" in value:
+            raise ValueError(f"{name} must not contain a pipe: {value!r}")
+    parts = (
+        CAP_DOMAIN,
+        campaign_id,
+        str(row_index),
+        sku,
+        str(cap_bps),
+        salt_hex,
+    )
+    return "|".join(parts).encode("utf-8")
+
+
+def cap_leaf_hash(
+    campaign_id: str,
+    row_index: int,
+    sku: str,
+    cap_bps: int,
+    salt_hex: str,
+) -> str:
+    return hash_leaf(
+        cap_leaf_preimage(campaign_id, row_index, sku, cap_bps, salt_hex)
+    )
+
+
+def tier_hash(
+    campaign_id: str,
+    tier_min_txn_count: int,
+    tier_min_spend_paise: int,
+    tier_window_days: int | None,
+    base_cap_fraction_bps: int,
+) -> str:
+    """Commit to who qualifies, alongside what they qualify for.
+
+    Without this the caps are committed and the rule that scales them is not,
+    so a merchant could publish a root, then quietly move the qualifying line
+    and change what every shopper is actually offered -- with no commitment
+    appearing to have changed.
+
+    Deliberately NOT folded into `policy_hash`. That function's inputs are
+    pinned by `policy_hash_case` in the shared fixture and by its TypeScript
+    twin; adding a field would invalidate the live campaign's stored value with
+    no way back. A separate scalar costs one column and breaks nothing.
+    """
+    payload = json.dumps(
+        {
+            "domain": CAP_DOMAIN,
+            "campaign_id": campaign_id,
+            "tier_min_txn_count": tier_min_txn_count,
+            "tier_min_spend_paise": tier_min_spend_paise,
+            # None and 0 are different promises -- lifetime versus a window
+            # nothing can fall inside -- so the null survives into the JSON
+            # rather than being coerced to a number.
+            "tier_window_days": tier_window_days,
+            "base_cap_fraction_bps": base_cap_fraction_bps,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return _sha256_hex(payload.encode("utf-8"))
