@@ -243,6 +243,21 @@ def _aggregate(campaign: dict[str, Any], rows: list[dict[str, Any]],
     }
 
 
+def _sessions_of(audit: Any) -> list[dict[str, Any]]:
+    """The session list, whichever shape the database handed back.
+
+    The paginated function returns an envelope, {total, returned, offset,
+    sessions}; the one it replaced returned a bare array. Iterating the
+    envelope as if it were the array yields its KEYS -- four strings -- and the
+    first .get() on one raises AttributeError, which is the same failure the
+    qr-sheet route hit for the same reason: a shape changed underneath a caller
+    that was never updated with it.
+    """
+    if isinstance(audit, dict):
+        return audit.get("sessions") or []
+    return audit or []
+
+
 async def postmortem(db: DbBackend, campaign_id: str) -> dict[str, Any]:
     campaign = await db.rpc("get_campaign", {"p_campaign_id": campaign_id})
     if campaign is None:
@@ -252,7 +267,20 @@ async def postmortem(db: DbBackend, campaign_id: str) -> dict[str, Any]:
         "get_audit_feed",
         {"p_campaign_id": campaign_id, "p_after_id": 0, "p_limit": 200},
     )
-    sessions = await db.rpc("get_session_audit", {"p_campaign_id": campaign_id}) or []
+    # All three arguments, named. Production carries TWO get_session_audit
+    # overloads: the original (uuid) from 010_audit.sql, and the paginated
+    # (uuid, int, int) whose limit/offset default to 500/0. A call naming only
+    # p_campaign_id matches both, so PostgREST answers 300 Multiple Choices and
+    # this endpoint 500s -- which reaches the browser as a CORS error, because
+    # an unhandled 500 is produced outside the CORS middleware and carries no
+    # Access-Control-Allow-Origin header. Naming p_limit and p_offset picks the
+    # paginated one unambiguously, and keeps working after the stale overload
+    # is dropped in 024.
+    audit = await db.rpc(
+        "get_session_audit",
+        {"p_campaign_id": campaign_id, "p_limit": 500, "p_offset": 0},
+    )
+    sessions = _sessions_of(audit)
     figures = _aggregate(campaign, (feed or {}).get("items") or [], sessions)
 
     prose = await _ask(
