@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
@@ -12,6 +14,8 @@ from app.core.db import RpcError
 from app.services import advisor, campaign_service, qr_service
 
 router = APIRouter(prefix="/api/v1", tags=["campaigns"])
+
+log = logging.getLogger("kirana.campaigns")
 
 DEMO_MERCHANT_ID = "00000000-0000-0000-0000-00000000d001"
 
@@ -253,6 +257,22 @@ async def postmortem(campaign_id: str, db: DbDep, _: MerchantKey) -> dict:
         raise HTTPException(
             status_code=404,
             detail={"code": str(exc), "message": "No such campaign."},
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - see below
+        # Anything else becomes a 503 rather than an unhandled 500, because of
+        # WHERE the two are generated. An HTTPException is raised inside the
+        # CORS middleware, so the response carries Access-Control-Allow-Origin.
+        # An unhandled exception is turned into a 500 by Starlette's outermost
+        # error middleware, which sits OUTSIDE CORS and sends no such header --
+        # so the browser reports a CORS policy violation and the real fault
+        # never reaches the console at all. That is how an ambiguous RPC
+        # overload showed up as "Failed to fetch" with nothing to search for.
+        log.exception("postmortem failed for campaign %s", campaign_id)
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "POSTMORTEM_UNAVAILABLE",
+                    "message": "Could not read this campaign's history just "
+                               "now. The numbers on this page are unaffected."},
         ) from exc
 
 
