@@ -149,7 +149,8 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     items: [
       { to: '/merchant', label: 'Campaigns', hint: 'Running and past promotions', icon: IconCampaigns, end: true, key: 'campaigns' },
       { to: '/merchant/catalog', label: 'Products', hint: 'Prices, costs and margins', icon: IconProducts, key: 'products' },
-      { to: '/merchant/shelves', label: 'Shelves', hint: 'Group products for stickers', icon: IconShelves, key: 'shelves' },
+      { to: '/merchant/builder', label: 'Build shelves', hint: 'Drag products onto shelves and see their limits', icon: IconShelves },
+      { to: '/merchant/shelves', label: 'Shelves (list)', hint: 'The older tick-box view', icon: IconShelves, key: 'shelves' },
       { to: '/merchant/agent', label: 'AI shoppers', hint: "Let other people's assistants buy from you", icon: IconAgent },
     ],
   },

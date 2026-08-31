@@ -4,6 +4,7 @@ import RedemptionPage from './pages/RedemptionPage'
 import SlotPage from './pages/SlotPage'
 import VerifyPage from './pages/VerifyPage'
 import AgentPage from './pages/merchant/AgentPage'
+import BuilderPage from './pages/merchant/BuilderPage'
 import CampaignDetailPage from './pages/merchant/CampaignDetailPage'
 import CampaignsPage from './pages/merchant/CampaignsPage'
 import CatalogPage from './pages/merchant/CatalogPage'
@@ -31,6 +32,7 @@ export default function App() {
       <Route path="/merchant" element={<CampaignsPage />} />
       <Route path="/merchant/catalog" element={<CatalogPage />} />
       <Route path="/merchant/shelves" element={<ShelvesPage />} />
+      <Route path="/merchant/builder" element={<BuilderPage />} />
       <Route path="/merchant/agent" element={<AgentPage />} />
       <Route path="/merchant/new" element={<NewCampaignPage />} />
       <Route path="/merchant/:campaignId" element={<CampaignDetailPage />} />
