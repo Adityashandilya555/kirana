@@ -61,6 +61,16 @@ class CommitBody(BaseModel):
     #: for every product, derived from the margin floor, under its own root.
     ceiling_mode: str = Field(default="tiered", pattern="^(tiered|margin)$")
 
+    #: 'once' is a coupon: the first person to buy with it kills it for
+    #: everyone. 'shared' is a shelf fixture: many people scan the same sticker
+    #: over its life, and what gets used up is one discount per CUSTOMER per
+    #: campaign rather than the sticker itself.
+    #:
+    #: Default 'once' so nothing existing changes. Shared stickers are only
+    #: meaningful once shoppers are identified, which is why this is opt-in
+    #: rather than the new default.
+    sticker_sharing: str = Field(default="once", pattern="^(once|shared)$")
+
 
 def _rpc_http(exc: RpcError) -> HTTPException:
     conflicts = {
@@ -146,6 +156,7 @@ async def commit_campaign(
         result = await campaign_service.commit_campaign(
             db, campaign_id, binding=binding, targets=targets,
             ceiling_mode=(body.ceiling_mode if body else "tiered"),
+            sticker_sharing=(body.sticker_sharing if body else "once"),
         )
     except RpcError as exc:
         raise _rpc_http(exc) from exc

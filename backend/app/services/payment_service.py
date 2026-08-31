@@ -45,6 +45,10 @@ BAD_REQUEST_CODES = {
     # should be unreachable, and the day one is not is the day to know.
     "PRODUCT_CAP_VIOLATION", "CUSTOMER_TIER_VIOLATION", "MARGIN_FLOOR_VIOLATION",
 }
+#: Not an error in the system -- the shopper already had their one discount
+#: from this campaign. A conflict rather than a bad request, and it deserves a
+#: sentence rather than a code.
+CONFLICT_CODES = CONFLICT_CODES | {"CUSTOMER_ALREADY_REDEEMED"}
 NOT_FOUND_CODES = {"SESSION_NOT_FOUND", "ORDER_NOT_FOUND"}
 
 
