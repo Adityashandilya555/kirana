@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import MerchantShell from '../../components/MerchantShell'
 import { Button, Card, EmptyState, Money, Pct } from '../../components/ui'
 import { API_BASE, MERCHANT_KEY } from '../../lib/api'
-import { getCatalog, importSheet, previewSheet } from '../../lib/merchant'
-import type { CatalogItem, ParsedSheet } from '../../lib/merchant'
+import { bandCapBps, bpsFromPct } from '../../lib/caps'
+import { getCatalog, importSheet, previewSheet, simulate } from '../../lib/merchant'
+import type { CatalogItem, ParsedSheet, SimItem } from '../../lib/merchant'
 
 /**
  * Products, and getting them in from a spreadsheet.
@@ -28,6 +29,32 @@ function MarginCell({ bps }: { bps: number }) {
   )
 }
 
+/**
+ * The ceiling a product can carry, worked out from its own margin.
+ *
+ * Margin is already shown here, but margin is not the number a shopkeeper
+ * actually wants: "36% margin" does not tell you what you may offer, and the
+ * answer depends on the floor you set. This is that answer, and it is the same
+ * one the campaign preview shows and the gate later enforces -- all three come
+ * from simulate.item_headroom, so there is only one number in the system.
+ *
+ * Both bands, because the point of the tier rule is invisible until you see
+ * that a regular reaches 19% on tea and a stranger reaches 9.5%.
+ */
+function CapCell({ capBps, discountable }: { capBps: number; discountable: boolean }) {
+  if (!discountable) {
+    // The one a shopkeeper most needs to see. A product whose margin sits
+    // under the floor can never be discounted at all, and until this column
+    // existed that was only discoverable by committing a campaign.
+    return <span className="text-xxs font-semibold uppercase tracking-wide text-fail">none</span>
+  }
+  return (
+    <span className="tnum font-mono text-mini text-pass">
+      <Pct bps={capBps} />
+    </span>
+  )
+}
+
 export default function CatalogPage() {
   const [items, setItems] = useState<CatalogItem[] | null>(null)
   const [preview, setPreview] = useState<ParsedSheet | null>(null)
@@ -38,6 +65,21 @@ export default function CatalogPage() {
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // The three numbers that decide every ceiling below. Defaults match the
+  // campaign form, so what a shopkeeper reads here is what they will get there.
+  const [maxDiscount, setMaxDiscount] = useState('20')
+  const [marginFloor, setMarginFloor] = useState('12')
+  const [newBandPct, setNewBandPct] = useState('50')
+  const [caps, setCaps] = useState<Map<string, SimItem>>(new Map())
+
+  // Derived during render, not stored: a box holding "1" on the way to "12",
+  // or holding nothing at all, is a normal thing for a box to hold, and the
+  // answer is simply that there is no ceiling to show yet.
+  const maxBps = bpsFromPct(maxDiscount)
+  const floorBps = bpsFromPct(marginFloor)
+  const bandBps = bpsFromPct(newBandPct) ?? 0
+  const capsReady = maxBps !== null && floorBps !== null && maxBps > 0
+
   const load = useCallback(() => {
     getCatalog()
       .then((r) => setItems(r.items))
@@ -45,6 +87,34 @@ export default function CatalogPage() {
   }, [])
 
   useEffect(load, [load])
+
+  /*
+   * The ceilings come from the same /simulate the campaign preview uses, not
+   * from arithmetic repeated here. Three places now show a product's cap --
+   * this page, the campaign preview, and the committed value the gate
+   * enforces -- and all three trace back to simulate.item_headroom, so they
+   * cannot drift into disagreeing about the same product.
+   *
+   * Debounced, because these are number inputs and a request per keystroke
+   * would both hammer the API and make the column flicker mid-typing.
+   */
+  useEffect(() => {
+    // Spelled out rather than leaning on capsReady: strictNullChecks is off in
+    // this project, so nothing would stop a null reaching the request body.
+    if (!items?.length || maxBps === null || floorBps === null || maxBps <= 0) return
+    const t = setTimeout(() => {
+      simulate({
+        max_discount_bps: maxBps,
+        margin_floor_bps: floorBps,
+        // Neither affects a per-item ceiling; the endpoint just wants them.
+        budget_paise: 500_000,
+        slot_count: 24,
+      })
+        .then((s) => setCaps(new Map(s.items.map((i) => [i.sku, i]))))
+        .catch(() => setCaps(new Map()))
+    }, 350)
+    return () => clearTimeout(t)
+  }, [items, maxBps, floorBps])
 
   async function choose(file: File) {
     setError(null)
@@ -264,10 +334,62 @@ export default function CatalogPage() {
 
       {items && items.length > 0 && (
         <Card>
-          <div className="mb-3 flex items-baseline justify-between">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="font-medium">{items.length} products</h2>
             <p className="text-xs text-ink-soft">
-              Cost and margin are yours alone — never shown to a customer.
+              Cost, margin and ceilings are yours alone — never shown to a customer.
+            </p>
+          </div>
+
+          {/* What the two ceiling columns are worked out from. Sitting above
+              the table rather than on a settings screen because the whole
+              point is watching the numbers move as you change them. */}
+          <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-hairline bg-sunk px-4 py-3">
+            <label className="block">
+              <span className="mb-1 block text-2xs font-semibold uppercase tracking-[0.1em] text-ink-soft">
+                Max discount
+              </span>
+              <div className="flex items-baseline gap-1">
+                <input
+                  className="w-16 rounded-lg border border-hairline bg-card px-2 py-1 text-mini text-ink outline-none focus:border-accent"
+                  inputMode="decimal"
+                  value={maxDiscount}
+                  onChange={(e) => setMaxDiscount(e.target.value)}
+                />
+                <span className="text-tiny text-ink-soft">%</span>
+              </div>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-2xs font-semibold uppercase tracking-[0.1em] text-ink-soft">
+                Margin floor
+              </span>
+              <div className="flex items-baseline gap-1">
+                <input
+                  className="w-16 rounded-lg border border-hairline bg-card px-2 py-1 text-mini text-ink outline-none focus:border-accent"
+                  inputMode="decimal"
+                  value={marginFloor}
+                  onChange={(e) => setMarginFloor(e.target.value)}
+                />
+                <span className="text-tiny text-ink-soft">%</span>
+              </div>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-2xs font-semibold uppercase tracking-[0.1em] text-ink-soft">
+                New customers get
+              </span>
+              <div className="flex items-baseline gap-1">
+                <input
+                  className="w-16 rounded-lg border border-hairline bg-card px-2 py-1 text-mini text-ink outline-none focus:border-accent"
+                  inputMode="numeric"
+                  value={newBandPct}
+                  onChange={(e) => setNewBandPct(e.target.value)}
+                />
+                <span className="text-tiny text-ink-soft">% of the ceiling</span>
+              </div>
+            </label>
+            <p className="ml-auto max-w-sm text-tiny leading-relaxed text-ink-soft">
+              These are the same numbers the campaign preview uses, so a ceiling
+              here is the one that will actually be committed.
             </p>
           </div>
           <div className="overflow-x-auto rounded-lg border border-hairline">
@@ -280,23 +402,52 @@ export default function CatalogPage() {
                   <th className="px-3 py-2 text-right">Price</th>
                   <th className="px-3 py-2 text-right">Cost 🔒</th>
                   <th className="px-3 py-2 text-right">Margin 🔒</th>
+                  <th className="px-3 py-2 text-right">Regular 🔒</th>
+                  <th className="px-3 py-2 text-right">New 🔒</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((i) => (
-                  <tr key={i.sku} className="border-t border-hairline">
-                    <td className="px-3 py-2 font-mono text-xs">{i.sku}</td>
-                    <td className="px-3 py-2">{i.name}</td>
-                    <td className="px-3 py-2 text-ink-soft">{i.unit}</td>
-                    <td className="px-3 py-2 text-right"><Money paise={i.price_paise} /></td>
-                    <td className="bg-sunk/50 px-3 py-2 text-right text-ink-soft">
-                      <Money paise={i.cost_paise} />
-                    </td>
-                    <td className="bg-sunk/50 px-3 py-2 text-right">
-                      <MarginCell bps={i.margin_bps} />
-                    </td>
-                  </tr>
-                ))}
+                {items.map((i) => {
+                  const cap = capsReady ? caps.get(i.sku) : undefined
+                  return (
+                    <tr
+                      key={i.sku}
+                      className={[
+                        'border-t border-hairline',
+                        // A product nothing can be taken off is worth seeing
+                        // at a glance, not worth hunting for in a column.
+                        cap && !cap.discountable ? 'bg-fail-bg/40' : '',
+                      ].join(' ')}
+                    >
+                      <td className="px-3 py-2 font-mono text-xs">{i.sku}</td>
+                      <td className="px-3 py-2">{i.name}</td>
+                      <td className="px-3 py-2 text-ink-soft">{i.unit}</td>
+                      <td className="px-3 py-2 text-right"><Money paise={i.price_paise} /></td>
+                      <td className="bg-sunk/50 px-3 py-2 text-right text-ink-soft">
+                        <Money paise={i.cost_paise} />
+                      </td>
+                      <td className="bg-sunk/50 px-3 py-2 text-right">
+                        <MarginCell bps={i.margin_bps} />
+                      </td>
+                      <td className="bg-sunk/50 px-3 py-2 text-right">
+                        {cap ? (
+                          <CapCell capBps={cap.max_discount_bps} discountable={cap.discountable} />
+                        ) : (
+                          <span className="text-ink-faint">—</span>
+                        )}
+                      </td>
+                      <td className="bg-sunk/50 px-3 py-2 text-right">
+                        {cap && cap.discountable ? (
+                          <span className="tnum font-mono text-mini text-ink-soft">
+                            <Pct bps={bandCapBps(cap.max_discount_bps, bandBps)} />
+                          </span>
+                        ) : (
+                          <span className="text-ink-faint">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
