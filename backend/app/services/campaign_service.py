@@ -256,7 +256,7 @@ async def create_campaign(
 async def commit_campaign(
     db: DbBackend, campaign_id: str,
     binding: str = "open", targets: list[str] | None = None,
-    ceiling_mode: str = "tiered",
+    ceiling_mode: str = "tiered", sticker_sharing: str = "once",
 ) -> dict[str, Any]:
     """Irreversible. Generates slots, freezes the root, stores every proof.
 
@@ -347,6 +347,7 @@ async def commit_campaign(
                 int(campaign.get("base_cap_fraction_bps") or 10_000),
             ),
             "p_ceiling_mode": ceiling_mode,
+            "p_sticker_sharing": sticker_sharing,
         },
     )
     return {"commit": result, "campaign": await db.rpc(
