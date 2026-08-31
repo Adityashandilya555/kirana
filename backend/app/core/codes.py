@@ -46,10 +46,12 @@ class BoundsCode(StrEnum):
 
     # -- an offer exists -----------------------------------------------------
     OK_AS_PROPOSED = "OK_AS_PROPOSED"
+    OK_CLAMPED_PRODUCT_CAP = "OK_CLAMPED_PRODUCT_CAP"
     OK_CLAMPED_SLOT_CEILING = "OK_CLAMPED_SLOT_CEILING"
     OK_CLAMPED_CAMPAIGN_CEILING = "OK_CLAMPED_CAMPAIGN_CEILING"
     OK_CLAMPED_MARGIN_FLOOR = "OK_CLAMPED_MARGIN_FLOOR"
     OK_CLAMPED_BUDGET = "OK_CLAMPED_BUDGET"
+    OK_CLAMPED_CUSTOMER_TIER = "OK_CLAMPED_CUSTOMER_TIER"
 
     # -- no offer is possible ------------------------------------------------
     TURN_LIMIT = "TURN_LIMIT"
@@ -63,11 +65,20 @@ class BoundsCode(StrEnum):
 
 #: Which bound produced the granted number. Surfaced to the merchant console
 #: and, on tap, to the customer.
+#: These strings are a CONTRACT with the frontend: LIMIT_LABEL in
+#: frontend/src/lib/plainLanguage.ts keys off them to say which limit bit, in
+#: words a shopkeeper reads. A key here with no label there silently falls
+#: through to a generic phrase -- which is exactly what had been happening to
+#: OK_CLAMPED_BUDGET, whose value was "remaining_budget_paise" while the
+#: frontend keyed "budget_paise". Every budget clamp has been rendering the
+#: fallback. A test now asserts the two sets are identical.
 BINDING = {
+    BoundsCode.OK_CLAMPED_PRODUCT_CAP: "product_cap_bps",
     BoundsCode.OK_CLAMPED_SLOT_CEILING: "slot_ceiling_bps",
     BoundsCode.OK_CLAMPED_CAMPAIGN_CEILING: "campaign_max_discount_bps",
     BoundsCode.OK_CLAMPED_MARGIN_FLOOR: "margin_floor_bps",
     BoundsCode.OK_CLAMPED_BUDGET: "remaining_budget_paise",
+    BoundsCode.OK_CLAMPED_CUSTOMER_TIER: "customer_tier_cap_bps",
 }
 
 CLAMPED_CODES = frozenset(BINDING)

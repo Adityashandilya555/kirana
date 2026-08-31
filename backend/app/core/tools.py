@@ -44,6 +44,12 @@ class CatalogItem:
     unit: str
     price_paise: int
     cost_paise: int  # server-side only; never rendered into a tool result
+    #: The ceiling committed for this sku, or None on a campaign that predates
+    #: per-product caps. Server-side only, for exactly the same reason as
+    #: cost_paise: a shopper who learns the cap has learned the ceiling, and
+    #: the negotiation is over. `public()` below is the allowlist that enforces
+    #: it, and neither field appears there.
+    cap_bps: int | None = None
 
     def public(self) -> dict[str, Any]:
         return {
@@ -103,6 +109,22 @@ class OfferContext:
     def item(self, sku: str) -> CatalogItem | None:
         want = (sku or "").strip().upper()
         return next((c for c in self.catalog if c.sku.upper() == want), None)
+
+    def caps_for(self, item: CatalogItem) -> tuple[int | None, int | None]:
+        """The two committed ceilings for one product, as bounds.check wants
+        them: `(product_cap_bps, customer_cap_bps)`.
+
+        Lives here, on the context, rather than at each of the four call sites
+        that gate an offer -- the human turn, the upsell, the accept re-gate,
+        and the machine-buyer quote. A divergence between those is a discount
+        an AI buyer could get that a human could not, which agent_commerce.py
+        already names as the exact failure this project exists to prevent.
+        One derivation, four callers.
+
+        Both are None on a campaign committed before caps existed, which is
+        what makes those campaigns behave exactly as they always have.
+        """
+        return customer_service.caps_for_item(item.cap_bps, self.tier_cap_fraction_bps)
 
 
 def _rupees(paise: int) -> str:
@@ -261,6 +283,7 @@ def build_tools(ctx: OfferContext) -> tuple[list[BaseTool], dict[str, BaseTool]]
             }
             return _record("propose_offer", args, _json(payload))
 
+        product_cap, customer_cap = ctx.caps_for(item)
         decision = bounds.check(
             BoundsInput(
                 proposed_bps=int(discount_bps),
@@ -277,6 +300,8 @@ def build_tools(ctx: OfferContext) -> tuple[list[BaseTool], dict[str, BaseTool]]
                 reserved_paise=ctx.reserved_paise,
                 turn_count=ctx.turn_count,
                 max_turns=ctx.max_turns,
+                product_cap_bps=product_cap,
+                customer_cap_bps=customer_cap,
             )
         )
         ctx.last_decision = decision
@@ -343,6 +368,7 @@ def build_tools(ctx: OfferContext) -> tuple[list[BaseTool], dict[str, BaseTool]]
 
         # Priced through the SAME gate. An upsell is another thing the agent
         # may propose and not grant -- the bound generalises past discounts.
+        addon_product_cap, addon_customer_cap = ctx.caps_for(pick)
         decision = bounds.check(
             BoundsInput(
                 proposed_bps=ctx.slot_ceiling_bps,
@@ -359,6 +385,8 @@ def build_tools(ctx: OfferContext) -> tuple[list[BaseTool], dict[str, BaseTool]]
                 reserved_paise=ctx.reserved_paise,
                 turn_count=ctx.turn_count,
                 max_turns=ctx.max_turns,
+                product_cap_bps=addon_product_cap,
+                customer_cap_bps=addon_customer_cap,
             )
         )
         ctx.last_addon = (pick.sku, decision)

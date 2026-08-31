@@ -43,6 +43,7 @@ from typing import Any
 from app.core import bounds, merkle
 from app.core.bounds import BoundsInput
 from app.core.config import settings
+from app.services import customer_service
 
 log = logging.getLogger("kirana.agent")
 
@@ -168,6 +169,12 @@ def build_quote(ctx: dict[str, Any], sku: str, qty: int) -> dict[str, Any]:
             f"{want} is not available on this code.",
         )
 
+    # The machine path takes the same two ceilings as the human one. Omitting
+    # them here would be a discount an AI buyer could get that a human could
+    # not -- the divergence this module's header calls out by name.
+    product_cap, customer_cap = customer_service.caps_for_item(
+        item.get("cap_bps"), (ctx.get("session") or {}).get("tier_cap_fraction_bps")
+    )
     verdict = bounds.check(
         BoundsInput(
             proposed_bps=int(slot["ceiling_bps"]),  # a machine asks for the most
@@ -185,6 +192,8 @@ def build_quote(ctx: dict[str, Any], sku: str, qty: int) -> dict[str, Any]:
             # An agent asking for a price is not a negotiating turn.
             turn_count=0,
             max_turns=int(campaign["max_turns"]),
+            product_cap_bps=product_cap,
+            customer_cap_bps=customer_cap,
         )
     )
 

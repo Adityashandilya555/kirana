@@ -70,6 +70,10 @@ def _offer_context(ctx: dict[str, Any]) -> OfferContext:
             CatalogItem(
                 sku=c["sku"], name=c["name"], unit=c["unit"],
                 price_paise=int(c["price_paise"]), cost_paise=int(c["cost_paise"]),
+                # None on a campaign that predates per-product caps. Null means
+                # "not applied", never "a cap of zero" -- the latter would make
+                # every legacy campaign refuse every discount.
+                cap_bps=(int(c["cap_bps"]) if c.get("cap_bps") is not None else None),
             )
             for c in ctx.get("catalog") or []
         ],
