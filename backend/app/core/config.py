@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     # not a timeout. These numbers are deliberately aggressive.
     LLM_CONNECT_TIMEOUT_S: float = 3.0
     LLM_READ_TIMEOUT_S: float = 12.0
+    #: The advisor and the post-mortem are not negotiations. Nobody is standing
+    #: at a counter waiting, and both send the whole catalogue and ask for
+    #: structured JSON back -- which on a real shop takes well over the 12
+    #: seconds a haggling turn is allowed. Holding them to the negotiation
+    #: deadline is why "Suggest limits" returned "not reachable" every time
+    #: while /health/llm reported the same provider healthy in 1.7s.
+    LLM_ADVISOR_TIMEOUT_S: float = 60.0
     LLM_GLOBAL_DEADLINE_S: float = 25.0
     LLM_TEMPERATURE: float = 0.2
     AGENT_MAX_STEPS: int = 4

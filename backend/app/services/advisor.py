@@ -21,6 +21,7 @@ import logging
 from typing import Any
 
 from app.core import llm as llmmod
+from app.core.config import settings
 from app.core.db import DbBackend
 from app.services import simulate
 
@@ -41,7 +42,15 @@ async def _ask(prompt: str, system: str) -> str | None:
 
     for spec in llmmod.provider_chain():
         try:
-            model = llmmod.build_chat_model(spec)
+            # A longer read timeout than a negotiation turn gets. Both callers
+            # here hand the model the whole catalogue and ask for structured
+            # JSON, which takes far more than the 12 seconds a haggle allows --
+            # and the failure looked identical to the provider being down, so
+            # the console reported "not reachable" while /health/llm showed the
+            # same provider answering in under two seconds.
+            model = llmmod.build_chat_model(
+                spec, read_timeout_s=settings.LLM_ADVISOR_TIMEOUT_S
+            )
             reply = await model.ainvoke(
                 [SystemMessage(content=system), HumanMessage(content=prompt)]
             )

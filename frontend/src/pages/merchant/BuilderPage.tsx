@@ -134,6 +134,7 @@ export default function BuilderPage() {
   const [stickers, setStickers] = useState('24')
 
   const [editing, setEditing] = useState<Partial<CatalogItem> | null>(null)
+  const [newShelfName, setNewShelfName] = useState('')
 
   /** Re-read both lists after any mutation. Returns the promise so callers
    *  can await it before clearing their busy flag. */
@@ -238,11 +239,20 @@ export default function BuilderPage() {
     }
   }
 
-  async function dropOnNewShelf(sku: string) {
+  /** Make the shelf FIRST, empty, then fill it by dropping.
+   *
+   *  The first version created a shelf as a side effect of the first drop,
+   *  which read as "the drop did something odd" rather than "I made a shelf".
+   *  An empty shelf is fine: upsert_shelf accepts an empty sku list, and the
+   *  old screen's refusal to save one was a frontend guard, not a rule. */
+  async function createShelf() {
+    const name = newShelfName.trim()
+    if (!name) return
     setBusy(true)
+    setError(null)
     try {
-      const n = shelves.length + 1
-      await saveShelf({ name: `Shelf ${n}`, note: '', skus: [sku], shelf_id: null })
+      await saveShelf({ name, note: '', skus: [], shelf_id: null })
+      setNewShelfName('')
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -251,15 +261,36 @@ export default function BuilderPage() {
     }
   }
 
+  /** What catalog_items will actually accept, checked here so the shopkeeper
+   *  gets a sentence instead of a constraint name from Postgres.
+   *  price >= 100 paise and cost < price are CHECK constraints on the table;
+   *  submitting a blank form sends 0 for both and trips the first one. */
+  function productProblem(p: Partial<CatalogItem>): string | null {
+    if (!p.sku?.trim()) return 'Give the product a short code, like TEA250.'
+    if (!p.name?.trim()) return 'Give the product a name.'
+    if (!p.price_paise || p.price_paise < 100) return 'Price must be at least ₹1.'
+    if (p.cost_paise == null || p.cost_paise < 0) return 'Enter what this costs you.'
+    if (p.cost_paise >= p.price_paise)
+      return 'Cost has to be less than the price, or there is nothing to discount.'
+    return null
+  }
+
   async function saveProduct() {
-    if (!editing?.sku || !editing.name) return
+    if (!editing) return
+    const problem = productProblem(editing)
+    if (problem) {
+      setError(problem)
+      return
+    }
     setBusy(true)
     setError(null)
     try {
       await saveItems([
         {
-          sku: editing.sku.toUpperCase(),
-          name: editing.name,
+          // productProblem() has already refused a blank code or name, so both
+          // are present by the time we get here.
+          sku: (editing.sku ?? '').trim().toUpperCase(),
+          name: (editing.name ?? '').trim(),
           unit: editing.unit || 'pc',
           price_paise: editing.price_paise ?? 0,
           cost_paise: editing.cost_paise ?? 0,
@@ -316,6 +347,83 @@ export default function BuilderPage() {
         <Callout tone="fail">
           <p className="font-semibold text-fail">{error}</p>
         </Callout>
+      )}
+
+      {/* ----------------------------------------------- product editor -- */}
+      {/* Directly under the button that opens it. It used to render at the
+          bottom of the page, below the product list and the shelves, so
+          pressing "Add a product" scrolled nothing into view and read as a
+          dead button. */}
+      {editing && (
+        <Card className="mb-5 border-accent-line bg-accent-soft/40">
+          <Eyebrow>
+            {catalog.some((c) => c.sku === editing.sku) ? 'Edit product' : 'New product'}
+          </Eyebrow>
+          <div className="mt-3 grid gap-3 sm:grid-cols-5">
+            <label className="block">
+              <span className="mb-1.5 block text-tiny font-semibold text-ink">Code</span>
+              <input
+                className={`${inputClass} font-mono uppercase`}
+                placeholder="TEA250"
+                value={editing.sku ?? ''}
+                onChange={(e) => setEditing({ ...editing, sku: e.target.value })}
+              />
+            </label>
+            <label className="block sm:col-span-2">
+              <span className="mb-1.5 block text-tiny font-semibold text-ink">Name</span>
+              <input
+                className={inputClass}
+                placeholder="Tata Tea Gold 250g"
+                value={editing.name ?? ''}
+                onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-tiny font-semibold text-ink">Price (₹)</span>
+              <input
+                className={inputClass}
+                inputMode="decimal"
+                placeholder="190"
+                value={editing.price_paise ? String(editing.price_paise / 100) : ''}
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    price_paise: Math.round(parseFloat(e.target.value || '0') * 100),
+                  })
+                }
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-tiny font-semibold text-ink">
+                Cost (₹) 🔒
+              </span>
+              <input
+                className={inputClass}
+                inputMode="decimal"
+                placeholder="120"
+                value={editing.cost_paise ? String(editing.cost_paise / 100) : ''}
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    cost_paise: Math.round(parseFloat(e.target.value || '0') * 100),
+                  })
+                }
+              />
+            </label>
+          </div>
+          <p className="mt-2 text-tiny leading-relaxed text-ink-soft">
+            Cost never leaves your shop — it is what works out the discount a
+            product can carry, and the assistant is never told it.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <Button onClick={() => void saveProduct()} disabled={busy}>
+              {busy ? 'Saving…' : 'Save product'}
+            </Button>
+            <Button variant="ghost" onClick={() => { setEditing(null); setError(null) }}>
+              Cancel
+            </Button>
+          </div>
+        </Card>
       )}
 
       {/* ------------------------------------------------------- limits -- */}
@@ -406,7 +514,14 @@ export default function BuilderPage() {
                 key={s.id}
                 className={[
                   'transition-colors duration-200',
-                  over === s.id ? 'border-accent bg-accent-soft' : '',
+                  over === s.id
+                    ? 'border-accent bg-accent-soft'
+                    : // While something is being dragged, every shelf shows it
+                      // will accept it. Without this the only feedback is the
+                      // cursor, and on a tablet there is no cursor.
+                      dragging
+                      ? 'border-accent-line border-dashed'
+                      : '',
                 ].join(' ')}
                 {...dropHandlers(s.id, (sku) => void dropOnShelf(s, sku))}
               >
@@ -445,19 +560,35 @@ export default function BuilderPage() {
             ))}
 
             {/* ------------------------------------------------ new shelf -- */}
-            <div
-              {...dropHandlers('__new__', (sku) => void dropOnNewShelf(sku))}
-              className={[
-                'flex min-h-[128px] items-center justify-center rounded-xl border border-dashed px-4 py-6 text-center transition-colors duration-200',
-                over === '__new__'
-                  ? 'border-accent bg-accent-soft'
-                  : 'border-hairline-strong bg-card',
-              ].join(' ')}
+            {/* Name it, make it, then fill it. Creating a shelf as a side
+                effect of the first drop read as the drop misbehaving. */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                void createShelf()
+              }}
+              className="flex min-h-[128px] flex-col justify-center gap-2 rounded-xl border border-dashed border-hairline-strong bg-card px-4 py-5"
             >
-              <p className="text-mini text-ink-soft">
-                {dragging ? 'Drop to start a new shelf' : 'Drag a product here to start a new shelf'}
+              <label
+                htmlFor="new-shelf"
+                className="text-tiny font-semibold text-ink"
+              >
+                New shelf
+              </label>
+              <input
+                id="new-shelf"
+                className={inputClass}
+                placeholder="Tea &amp; coffee"
+                value={newShelfName}
+                onChange={(e) => setNewShelfName(e.target.value)}
+              />
+              <Button type="submit" disabled={busy || !newShelfName.trim()} full>
+                Create shelf
+              </Button>
+              <p className="text-2xs leading-relaxed text-ink-faint">
+                It starts empty. Drag products onto it afterwards.
               </p>
-            </div>
+            </form>
           </div>
 
           {shelves.length === 0 && catalog.length > 0 && (
@@ -470,69 +601,6 @@ export default function BuilderPage() {
         </div>
       </div>
 
-      {/* ------------------------------------------------ product editor -- */}
-      {editing && (
-        <Card className="mt-5">
-          <Eyebrow>{catalog.some((c) => c.sku === editing.sku) ? 'Edit product' : 'New product'}</Eyebrow>
-          <div className="mt-3 grid gap-3 sm:grid-cols-5">
-            <label className="block">
-              <span className="mb-1.5 block text-tiny font-semibold text-ink">Code</span>
-              <input
-                className={`${inputClass} font-mono uppercase`}
-                value={editing.sku ?? ''}
-                onChange={(e) => setEditing({ ...editing, sku: e.target.value })}
-              />
-            </label>
-            <label className="block sm:col-span-2">
-              <span className="mb-1.5 block text-tiny font-semibold text-ink">Name</span>
-              <input className={inputClass} value={editing.name ?? ''}
-                     onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-tiny font-semibold text-ink">Price (₹)</span>
-              <input
-                className={inputClass}
-                inputMode="decimal"
-                value={editing.price_paise ? String(editing.price_paise / 100) : ''}
-                onChange={(e) =>
-                  setEditing({
-                    ...editing,
-                    price_paise: Math.round(parseFloat(e.target.value || '0') * 100),
-                  })
-                }
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-tiny font-semibold text-ink">
-                Cost (₹) 🔒
-              </span>
-              <input
-                className={inputClass}
-                inputMode="decimal"
-                value={editing.cost_paise ? String(editing.cost_paise / 100) : ''}
-                onChange={(e) =>
-                  setEditing({
-                    ...editing,
-                    cost_paise: Math.round(parseFloat(e.target.value || '0') * 100),
-                  })
-                }
-              />
-            </label>
-          </div>
-          <p className="mt-2 text-tiny text-ink-soft">
-            Cost never leaves your shop — it is what works out the discount a
-            product can carry, and the assistant is never told it.
-          </p>
-          <div className="mt-4 flex gap-2">
-            <Button onClick={() => void saveProduct()} disabled={busy || !editing.sku || !editing.name}>
-              {busy ? 'Saving…' : 'Save product'}
-            </Button>
-            <Button variant="ghost" onClick={() => setEditing(null)}>
-              Cancel
-            </Button>
-          </div>
-        </Card>
-      )}
     </MerchantShell>
   )
 }
