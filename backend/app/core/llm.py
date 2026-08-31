@@ -110,9 +110,18 @@ def reset_breakers() -> None:
 # --------------------------------------------------------------------------
 # Model construction
 # --------------------------------------------------------------------------
-def build_chat_model(spec: ProviderSpec) -> ChatOpenAI:
+def build_chat_model(
+    spec: ProviderSpec, read_timeout_s: float | None = None
+) -> ChatOpenAI:
     """One ChatOpenAI per provider. Only base_url/api_key/model differ --
-    which is exactly the notebook's PROVIDER switch, generalised."""
+    which is exactly the notebook's PROVIDER switch, generalised.
+
+    `read_timeout_s` overrides the default for callers that are not a live
+    negotiation. The default is deliberately aggressive because a shopper is
+    standing there waiting; a merchant who has pressed "suggest limits" is
+    not, and holding them to a haggling deadline is what made that button
+    fail every time on a real catalogue.
+    """
     kwargs: dict = {
         "model": spec.model,
         "base_url": spec.base_url,
@@ -120,7 +129,8 @@ def build_chat_model(spec: ProviderSpec) -> ChatOpenAI:
         "temperature": settings.LLM_TEMPERATURE,
         "max_retries": 0,  # the router handles failover; retrying here doubles latency
         "timeout": httpx.Timeout(
-            settings.LLM_READ_TIMEOUT_S, connect=settings.LLM_CONNECT_TIMEOUT_S
+            read_timeout_s if read_timeout_s is not None else settings.LLM_READ_TIMEOUT_S,
+            connect=settings.LLM_CONNECT_TIMEOUT_S,
         ),
     }
     if spec.reasoning_effort:
