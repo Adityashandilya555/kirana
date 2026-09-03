@@ -215,6 +215,16 @@ async def confirm(body: ConfirmBody, db: DbDep) -> dict:
             )
 
     if not verified:
+        # ERROR, not a silent 400. Every failure of this route means a customer
+        # who has paid is now watching a spinner while the phone falls back to
+        # polling, and until this line existed the only trace of it anywhere
+        # was the absence of a settlement.
+        log.error(
+            "confirm REFUSED order=%s payment=%s: signature did not verify and "
+            "Razorpay does not report it captured (signature %s)",
+            body.order_id, body.payment_id,
+            "absent" if not body.signature else "present",
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "BAD_SIGNATURE",
@@ -223,6 +233,7 @@ async def confirm(body: ConfirmBody, db: DbDep) -> dict:
 
     row = await db.rpc("get_payment_status", {"p_rzp_order_id": body.order_id})
     if not row:
+        log.error("confirm: no session holds order %s", body.order_id)
         raise HTTPException(
             status_code=404,
             detail={"code": "ORDER_NOT_FOUND", "message": "No such order."},
@@ -243,6 +254,15 @@ async def confirm(body: ConfirmBody, db: DbDep) -> dict:
             source="checkout_handler",
         )
     except PaymentError as exc:
+        # Same argument as the refusal above: a plpgsql code like
+        # AMOUNT_MISMATCH reaching here is a paid customer with no receipt, and
+        # RpcError only logs the codes it does NOT recognise -- so the ones we
+        # wrote ourselves were the quietest of all.
+        log.error(
+            "confirm FAILED to settle order=%s payment=%s: %s (%s); the phone "
+            "will fall back to polling",
+            body.order_id, body.payment_id, exc.code, exc.message,
+        )
         raise _http(exc) from exc
     return settled
 
