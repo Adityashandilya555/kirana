@@ -15,17 +15,30 @@ test: ## Unit tests (no network, no database)
 	cd backend && uv run pytest -q -m "not integration"
 	cd frontend && npx vitest run --passWithNoTests
 
-test-all: test ## Unit + integration tests (needs a database)
-	cd backend && uv run pytest -q -m integration
+# DATABASE_URL is set here rather than expected in the environment: the
+# integration tests skip without it, so `make test-all` used to report a clean
+# pass having run nothing at all.
+test-all: test ## Unit + integration tests (needs `make db-reset` first)
+	cd backend && DATABASE_URL=$(DB_URL) uv run pytest -q -m integration
 
 typecheck: ## Frontend typecheck + production build
 	cd frontend && npx tsc --noEmit && npm run build
 
+# Published on 5433, not 5432, so it cannot collide with a Postgres someone
+# already runs locally. Without a published port the container was reachable
+# only through `docker exec`, which meant nothing outside psql -- the
+# integration suite included -- could ever connect to it.
+DB_PORT ?= 5433
+DB_URL  ?= postgresql://postgres:pw@127.0.0.1:$(DB_PORT)/kirana
+
 db-up: ## Start a local Postgres 16 for schema work
 	@docker rm -f $(PG) >/dev/null 2>&1 || true
-	docker run -d --name $(PG) -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=kirana postgres:16-alpine >/dev/null
-	@until docker exec $(PG) pg_isready -U postgres -d kirana >/dev/null 2>&1; do sleep 0.5; done
-	@echo "postgres ready"
+	docker run -d --name $(PG) -p $(DB_PORT):5432 -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=kirana postgres:16-alpine >/dev/null
+	@# pg_isready goes true once during initdb, while the server is still
+	@# listening only on the unix socket -- which is why db-apply used to fail
+	@# on the first statement of 001. Wait for a query to actually answer.
+	@until docker exec $(PG) psql -U postgres -d kirana -c 'select 1' >/dev/null 2>&1; do sleep 0.5; done
+	@echo "postgres ready on $(DB_URL)"
 
 # Every numbered migration, in order. This used to list 001/002/003 by hand,
 # which meant 004 through 011 had never run against a local database and the

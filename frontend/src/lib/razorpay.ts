@@ -56,10 +56,13 @@ export interface AcceptedOrder {
   stub: boolean
   sku: string
   qty: number
-  granted_bps: number
   discount_paise: number
   prefill?: { name?: string; email?: string; contact?: string }
   slot_token: string
+  /** Present on a basket checkout. One order can now cover several items, so
+   *  the sheet says "3 items" rather than naming whichever line happened to
+   *  be largest. */
+  line_count?: number
 }
 
 export interface CheckoutResult {
@@ -102,7 +105,10 @@ export async function openCheckout(
       currency: order.currency,
       order_id: order.order_id,
       name: merchantName,
-      description: `${order.sku} × ${order.qty}`,
+      description:
+        order.line_count && order.line_count > 1
+          ? `${order.line_count} items`
+          : `${order.sku} × ${order.qty}`,
       prefill: order.prefill ?? {},
       theme: { color: '#3a3f8f' },
       // Card first: UPI Collect is blocked on Android by NPCI rules.

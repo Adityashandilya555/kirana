@@ -27,7 +27,7 @@ from app.core.bounds import BoundsInput
 from app.core.codes import DecisionKind
 from app.core.config import settings
 from app.core.db import DbBackend, RpcError
-from app.services import customer_service, decision_log
+from app.services import cart_service, customer_service, decision_log
 
 log = logging.getLogger("kirana.payment")
 
@@ -39,6 +39,7 @@ CONFLICT_CODES = {
 BAD_REQUEST_CODES = {
     "CEILING_VIOLATION", "CAMPAIGN_MAX_VIOLATION", "BUDGET_EXCEEDED",
     "AMOUNT_MISMATCH", "BELOW_MIN_ORDER_AMOUNT", "CAMPAIGN_NOT_LIVE",
+    "CART_EMPTY",
     # The database's own re-check of what bounds.check() already refused.
     # Reaching the client at all means Python and SQL disagreed about the same
     # order, which is worth a loud 400 rather than a quiet success -- these
@@ -160,6 +161,157 @@ async def accept(
         # Echoed so the UI can show what actually got approved, which may be
         # lower than what was asked for.
         "capped": verdict.granted_bps < int(discount_bps),
+    }
+
+
+async def checkout(db: DbBackend, session_id: str) -> dict[str, Any]:
+    """Turn the whole basket into ONE Razorpay order.
+
+    `accept()` above is the single-item path and stays for the machine-buyer
+    flow and for the tests that pin its behaviour. This is what a person's
+    phone calls: it re-gates every line the same way accept() re-gates one, and
+    for the same reason -- the model approved those lines a conversation ago,
+    and between then and now the budget may have moved, the campaign may have
+    been paused, and another slot may have redeemed.
+
+    A line that no longer passes the gate is NOT silently dropped and NOT
+    silently re-priced. It is reported, with the shop's own sentence, and the
+    checkout refuses. Charging someone for a basket that quietly changed under
+    them while they were reaching for the Pay button is the one outcome worth
+    failing loudly to avoid.
+
+    The gate runs twice on purpose: here, in Python, so the customer gets a
+    sentence rather than a plpgsql code -- and again inside `reserve_cart`, in
+    SQL, in the same transaction that moves the budget, where it is the thing
+    that actually holds.
+    """
+    ctx = await db.rpc("get_session_context", {"p_session_id": session_id})
+    if ctx is None:
+        raise PaymentError("SESSION_NOT_FOUND", "No such session.")
+
+    cart = await cart_service.load(db, session_id)
+    if not cart["items"]:
+        raise PaymentError(
+            "CART_EMPTY",
+            "There is nothing in your basket yet. Ask me about something on "
+            "the shelf and I will price it for you.",
+        )
+
+    campaign, slot, session = ctx["campaign"], ctx["slot"], ctx["session"]
+    catalog = {c["sku"]: c for c in ctx.get("catalog") or []}
+
+    lines: list[dict[str, Any]] = []
+    gross = discount = 0
+    for line in cart["items"]:
+        sku = str(line["sku"])
+        item = catalog.get(sku)
+        if item is None:
+            raise PaymentError(
+                "ITEM_NOT_FOUND",
+                f"{line.get('name') or sku} is no longer on this shelf. "
+                "Remove it and I will re-price the rest.",
+            )
+
+        product_cap, customer_cap = customer_service.caps_for_item(
+            item.get("cap_bps"), session.get("tier_cap_fraction_bps")
+        )
+        verdict = bounds.check(
+            BoundsInput(
+                proposed_bps=int(line["granted_bps"]),
+                price_paise=int(item["price_paise"]),
+                cost_paise=int(item["cost_paise"]),
+                qty=int(line["qty"]),
+                slot_ceiling_bps=int(slot["ceiling_bps"]),
+                slot_status=slot["status"],
+                campaign_status=campaign["status"],
+                campaign_max_discount_bps=int(campaign["max_discount_bps"]),
+                margin_floor_bps=int(campaign["margin_floor_bps"]),
+                budget_paise=int(campaign["budget_paise"]),
+                spent_paise=int(campaign["spent_paise"]),
+                # This session's own hold is excluded: re-checking a basket
+                # against a budget that already counts its own reservation
+                # would refuse every second attempt at the same checkout.
+                reserved_paise=max(
+                    int(campaign["reserved_paise"])
+                    - int(session.get("reserved_paise") or 0), 0),
+                # Paying is not a negotiating turn. Someone who has decided to
+                # buy must not be refused for having talked too long.
+                turn_count=0,
+                max_turns=int(campaign["max_turns"]),
+                product_cap_bps=product_cap,
+                customer_cap_bps=customer_cap,
+            )
+        )
+        if not verdict.approved or verdict.granted_bps < int(line["granted_bps"]):
+            await decision_log.record(
+                db, campaign_id=campaign["id"], kind=DecisionKind.REJECTED,
+                code=verdict.code.value,
+                human_reason=f"Cart checkout refused on {sku}: {verdict.reason}",
+                customer_reason=verdict.customer_reason,
+                slot_id=slot["id"], session_id=session_id,
+                proposed_bps=int(line["granted_bps"]),
+            )
+            raise PaymentError(
+                verdict.code.value,
+                f"{item['name']}: {verdict.customer_reason}",
+            )
+
+        gross += int(item["price_paise"]) * int(line["qty"])
+        discount += verdict.discount_paise
+        lines.append({
+            "sku": sku,
+            "name": item["name"],
+            "qty": int(line["qty"]),
+            "granted_bps": verdict.granted_bps,
+            "discount_paise": verdict.discount_paise,
+            "line_total_paise": verdict.final_amount_paise,
+        })
+
+    total = gross - discount
+    order = rzp.create_order(
+        amount_paise=total,
+        receipt=rzp.new_receipt(),
+        notes={
+            "session_id": str(session_id),
+            "slot_token": slot["slot_token"],
+            "campaign_id": str(campaign["id"]),
+            # Razorpay caps a note value at 512 characters, and a long basket
+            # would silently truncate mid-sku. The count is what a support
+            # ticket actually needs; the lines live in cart_items.
+            "lines": str(len(lines)),
+        },
+    )
+
+    try:
+        reserved = await db.rpc("reserve_cart", {
+            "p_session_id": session_id,
+            "p_rzp_order_id": order["id"],
+            "p_amount_paise": total,
+        })
+    except RpcError as exc:
+        # The order exists at Razorpay but we could not reserve. Nothing has
+        # been charged; the order simply expires unpaid.
+        log.warning("reserve_cart failed after order %s: %s", order["id"], exc)
+        raise PaymentError(exc.code, exc.message) from exc
+
+    return {
+        "order_id": order["id"],
+        "amount_paise": total,
+        "currency": "INR",
+        "key_id": settings.RAZORPAY_KEY_ID or None,
+        "stub": bool(order.get("stub")),
+        "lines": lines,
+        "line_count": len(lines),
+        "gross_paise": gross,
+        "discount_paise": discount,
+        "effective_bps": int((reserved or {}).get("effective_bps") or 0),
+        "prefill": {"name": ctx["merchant"]["name"]},
+        "session_id": session_id,
+        "slot_token": slot["slot_token"],
+        # Kept so the checkout sheet has something to name the order with; the
+        # bill itself always comes from cart_items.
+        "sku": lines[0]["sku"],
+        "qty": lines[0]["qty"],
     }
 
 

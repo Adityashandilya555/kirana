@@ -1,6 +1,7 @@
 """One chat turn, end to end.
 
-    sanitize -> turn-limit precheck -> run_agent -> audit -> persist -> reply
+    sanitize -> turn-limit precheck -> load cart -> run_agent -> audit
+             -> flush cart -> persist -> reply
 
 The ordering is the security argument in miniature. Screening happens before
 any provider is constructed, so a blocked message provably costs zero tokens
@@ -28,7 +29,7 @@ from app.core.tools import (
     render_system_prompt,
     scope_note,
 )
-from app.services import decision_log
+from app.services import cart_service, decision_log
 
 log = logging.getLogger("kirana.chat")
 
@@ -62,7 +63,9 @@ async def load_context(db: DbBackend, session_id: str) -> dict[str, Any] | None:
     return await db.rpc("get_session_context", {"p_session_id": session_id})
 
 
-def _offer_context(ctx: dict[str, Any]) -> OfferContext:
+def _offer_context(
+    ctx: dict[str, Any], cart: dict[str, Any] | None = None
+) -> OfferContext:
     campaign, slot = ctx["campaign"], ctx["slot"]
     session = ctx["session"]
     return OfferContext(
@@ -94,6 +97,7 @@ def _offer_context(ctx: dict[str, Any]) -> OfferContext:
         tier_key=session.get("tier_key") or "new",
         tier_cap_fraction_bps=int(session.get("tier_cap_fraction_bps") or 10_000),
         tier_stats=session.get("tier_stats") or {},
+        cart=cart or dict(cart_service.EMPTY),
     )
 
 
@@ -133,7 +137,17 @@ def _offer_payload(oc: OfferContext) -> dict[str, Any] | None:
         "capped": decision.code in CLAMPED_CODES,
         "binding_constraint": decision.binding_constraint,
         "customer_reason": decision.customer_reason,
+        # The card is a receipt for one negotiation now, not the thing you pay
+        # from. Payment happens once, from the basket.
+        "added_to_cart": oc.last_sku in oc.cart_ops
+                         and not oc.cart_ops[oc.last_sku].remove,
     }
+
+
+PAID_REPLY = (
+    "That basket is paid for, ji -- show the code at the counter. "
+    "Scan the sticker again if you would like to buy something else."
+)
 
 
 async def chat_turn(db: DbBackend, session_id: str, message: str) -> dict[str, Any]:
@@ -144,6 +158,26 @@ async def chat_turn(db: DbBackend, session_id: str, message: str) -> dict[str, A
     campaign, slot, session = ctx["campaign"], ctx["slot"], ctx["session"]
     campaign_id, slot_id = campaign["id"], slot["id"]
     turn_index = int(session.get("turn_count") or 0)
+
+    # -- 0. this conversation is over ---------------------------------------
+    # A paid session is closed, and saying so is not pedantry. On a ONE-SHOT
+    # sticker the gate already refuses: slot_status becomes 'redeemed' and
+    # bounds.check returns SLOT_NOT_OPEN. On a SHARED sticker the slot stays
+    # 'offered' forever by design, so nothing downstream objects -- the model
+    # negotiates a fresh discount, the shopper is told they have it, and the
+    # basket write is the only thing that fails, quietly, in a log line. They
+    # would be holding a price nobody can sell them.
+    if session.get("status") == "paid":
+        await db.rpc("append_session_turn", {
+            "p_session_id": session_id, "p_role": "assistant",
+            "p_content": PAID_REPLY, "p_bump_turn": False,
+        })
+        return {
+            "session_id": session_id, "reply": PAID_REPLY, "offer": None,
+            "blocked": False, "session_closed": True,
+            "provider": None, "latency_ms": 0, "turn_count": turn_index,
+            "cart": await cart_service.load(db, session_id),
+        }
 
     # -- 1. screen, before any provider exists ------------------------------
     screened = sanitize.sanitize(message)
@@ -164,9 +198,14 @@ async def chat_turn(db: DbBackend, session_id: str, message: str) -> dict[str, A
             "session_id": session_id, "reply": BLOCKED_REPLY, "offer": None,
             "blocked": True, "block_categories": list(screened.categories),
             "provider": None, "latency_ms": 0, "turn_count": turn_index + 1,
+            "cart": await cart_service.load(db, session_id),
         }
 
-    oc = _offer_context(ctx)
+    # The basket, before the model sees anything. It is seeded into the prompt
+    # and into the tools, so the assistant knows what the shopper already has
+    # without spending a round trip asking.
+    cart = await cart_service.load(db, session_id)
+    oc = _offer_context(ctx, cart)
 
     # -- 2. turn limit, also before the model -------------------------------
     if oc.turn_count >= oc.max_turns:
@@ -191,6 +230,9 @@ async def chat_turn(db: DbBackend, session_id: str, message: str) -> dict[str, A
             "session_id": session_id, "reply": verdict.customer_reason, "offer": None,
             "blocked": False, "turn_limit_reached": True,
             "provider": None, "latency_ms": 0, "turn_count": oc.turn_count,
+            # Out of turns is not out of basket. Whatever was negotiated
+            # before the limit is still theirs to pay for.
+            "cart": cart,
         }
 
     # -- 3. the model --------------------------------------------------------
@@ -203,7 +245,7 @@ async def chat_turn(db: DbBackend, session_id: str, message: str) -> dict[str, A
         oc,
         system_prompt=render_system_prompt(
             ctx["merchant"]["name"], ctx["merchant"]["store_line"], oc.catalog,
-            scope_note(slot, oc.catalog),
+            scope_note(slot, oc.catalog), cart,
         ),
         transcript=ctx.get("transcript") or [],
         user_message=screened.text,
@@ -234,7 +276,16 @@ async def chat_turn(db: DbBackend, session_id: str, message: str) -> dict[str, A
             turn_index=turn_index, error=result.error,
         )
 
-    # -- 5. persist and reply ------------------------------------------------
+    # -- 5. the basket -------------------------------------------------------
+    # After the audit and before the reply. An approval that was written to the
+    # decision log but not to the basket would be a discount the shopper was
+    # told about, that the merchant can prove was granted, and that they cannot
+    # actually buy -- which is the worst of the three orderings.
+    updated = await cart_service.flush(db, session_id, oc.cart_ops)
+    if updated is not None:
+        cart = updated
+
+    # -- 6. persist and reply ------------------------------------------------
     turn = await db.rpc("append_session_turn", {
         "p_session_id": session_id, "p_role": "assistant",
         "p_content": result.reply, "p_bump_turn": False,
@@ -244,6 +295,7 @@ async def chat_turn(db: DbBackend, session_id: str, message: str) -> dict[str, A
         "session_id": session_id,
         "reply": result.reply,
         "offer": _offer_payload(oc),
+        "cart": cart,
         "blocked": False,
         "provider": result.provider,
         "model": result.model,

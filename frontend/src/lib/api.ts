@@ -111,15 +111,55 @@ export interface Offer {
   capped: boolean
   binding_constraint: string | null
   customer_reason: string
+  /** Whether this approval became a basket line. The card renders a receipt,
+   *  not a Pay button — payment happens once, from the basket. */
+  added_to_cart?: boolean
   // No max_allowed_bps. For a typical sticker that value IS the slot's
   // committed ceiling, and a shopper who can read it stops negotiating and
   // just asks for it. It stays server-side, where the model needs it.
+}
+
+/** One negotiated line. `granted_bps` is what the GATE allowed for this
+ *  product — every line carries its own rate, which is the whole reason a
+ *  basket exists rather than a single running offer. */
+export interface CartLine {
+  sku: string
+  name: string
+  unit: string
+  qty: number
+  unit_price_paise: number
+  gross_paise: number
+  granted_bps: number
+  discount_paise: number
+  line_total_paise: number
+  binding_constraint: string | null
+}
+
+export interface Cart {
+  cart_id: string | null
+  status: string
+  items: CartLine[]
+  count: number
+  gross_paise: number
+  discount_paise: number
+  total_paise: number
+}
+
+export const EMPTY_CART: Cart = {
+  cart_id: null,
+  status: 'open',
+  items: [],
+  count: 0,
+  gross_paise: 0,
+  discount_paise: 0,
+  total_paise: 0,
 }
 
 export interface ChatReply {
   session_id: string
   reply: string
   offer: Offer | null
+  cart?: Cart
   blocked: boolean
   block_categories?: string[]
   turn_limit_reached?: boolean
