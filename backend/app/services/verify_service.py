@@ -220,10 +220,23 @@ async def verify(db: DbBackend, raw_token: str) -> dict[str, Any]:
         "headline": headline,
         "detail": detail,
         "first_verified_at": result.get("first_verified_at"),
+        "paid_at": result.get("paid_at"),
         "store": result.get("store"),
         "campaign_name": result.get("campaign_name"),
         "sku": result.get("sku"),
         "qty": result.get("qty"),
+        # Who is standing at the counter, and what is in the bag. Neither was
+        # here before: a shopkeeper scanning a code learned the discount was
+        # inside its committed ceiling and nothing about the person or the
+        # basket. The proof is the argument; this is the shop.
+        #
+        # `customer` carries the last four digits of the phone and never the
+        # number, the same rule the session-opened audit row follows -- enough
+        # to recognise someone across a counter, not enough to be a contact
+        # list. `band` is read off the session snapshot: it is the band that
+        # actually priced this basket, not one recomputed now.
+        "customer": result.get("customer") or {"identified": False},
+        "bill": result.get("bill") or {"items": [], "count": 0},
         "slot_token": result.get("slot_token"),
         "leaf_index": result.get("leaf_index"),
         "granted_bps": granted,

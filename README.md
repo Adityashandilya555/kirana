@@ -30,15 +30,31 @@ before the conversation started.
 
     cp backend/.env.example backend/.env      # fill in the blanks
     cp frontend/.env.example frontend/.env.local
-    make db-reset                             # local Postgres via Docker
+    make db-reset                             # local Postgres via Docker, :5433
     make dev-api                              # :8000
     make dev-web                              # :5173
 
-`make help` lists everything.
+`make help` lists everything. `make test` is the no-database suite; `make
+test-all` adds the integration tests, which need `make db-reset` first and
+point themselves at the container it starts.
 
 ## Non-obvious decisions
 
 - **Money is paise (`bigint`), rates are basis points (`int`). No floats.**
+- **A conversation fills a basket, not a single offer.** Every approved
+  `propose_offer` becomes a line in `cart_items` at the rate the gate granted
+  *that product*, and there is one Pay button, on the basket. At checkout the
+  gate re-runs per line in Python and then again per line in SQL inside
+  `reserve_cart`, which is the transaction that moves the budget. The basket
+  aggregates into the session's existing `offer_bps` / `offer_amount_paise`
+  columns rather than replacing them, so `settle_payment`, the webhook and the
+  poller are untouched — and because the aggregate rate is a weighted mean of
+  per-line rates already inside the ceiling, `slots.ck_granted_le_ceiling`
+  still holds unweakened. See the header of `sql/025_cart.sql`.
+- **The assistant never asks for payment.** It quotes an item and asks what
+  else is needed; the shopper decides when they are done. An assistant with a
+  Pay button attached to its last sentence is one that has decided on the
+  shopper's behalf that they have finished shopping.
 - **All Supabase access is server-side.** `*.supabase.co` was DNS-blocked by
   Indian ISPs for ~8 days in Feb–Mar 2026; the phone is the device whose network
   we control least.

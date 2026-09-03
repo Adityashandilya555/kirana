@@ -97,6 +97,10 @@ def test_the_payload_is_a_closed_allowlist() -> None:
         "sku", "qty", "granted_bps", "proposed_bps", "discount_paise",
         "final_amount_paise", "code", "capped", "binding_constraint",
         "customer_reason",
+        # A boolean, decided here deliberately: it says whether this approval
+        # became a basket line, which the card needs to render "added" rather
+        # than a Pay button. It carries no ceiling and no number at all.
+        "added_to_cart",
     }
 
 

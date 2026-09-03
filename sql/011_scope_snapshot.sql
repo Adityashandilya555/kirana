@@ -24,4 +24,11 @@
 -- get_session_audit is also paginated. It previously capped at 100 with no
 -- signal, so on a campaign with more sessions than that, older threads lost
 -- their scope panel and slot token with nothing saying why.
-(full statements applied as migration 015_scope_snapshot; see supabase)
+-- (full statements applied as migration 015_scope_snapshot; see supabase)
+--
+-- That last line was not commented, so it was a bare `(full statements ...)`
+-- and `psql -v ON_ERROR_STOP=1` died on it: `make db-apply` has been failing
+-- at file 11 of 26, which means every migration after it -- shelves, audit,
+-- customers, tiers, product caps, per-customer burn -- has never once been
+-- replayed against a local Postgres, and `make db-reset` in the README does
+-- not work. Two hyphens.

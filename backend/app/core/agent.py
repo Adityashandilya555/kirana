@@ -85,6 +85,37 @@ def _history_messages(transcript: list[dict[str, Any]], limit: int = 8) -> list[
     return out
 
 
+def gate_sentence(ctx: OfferContext) -> str:
+    """What to say when the model ended on a tool call with nothing to say.
+
+    This is a real failure mode, not a theoretical one: a model that spends its
+    last step calling propose_offer produces an AIMessage with tool_calls and
+    an empty content, and the loop exits with no prose. The old fallback shipped
+    the gate's own audit sentence verbatim -- which is "Done -- 5% off." A
+    shopper negotiating three items got that same six-word bubble three times
+    and could not tell which item any of them was about.
+
+    The gate still decides the number. This only spends the item name and the
+    rupee figure it already returned, which is the difference between a receipt
+    and a shrug.
+    """
+    decision = ctx.last_decision
+    if decision is None:
+        return "Tell me which item you are looking at and I will check the price."
+
+    item = ctx.item(ctx.last_sku or "")
+    name = item.name if item else (ctx.last_sku or "that")
+    qty = f" x{ctx.last_qty}" if ctx.last_qty > 1 else ""
+
+    if not decision.approved:
+        return f"{name}{qty} -- {decision.customer_reason}"
+    return (
+        f"{name}{qty} at {decision.granted_bps / 100:g}% off, "
+        f"Rs {decision.final_amount_paise / 100:,.2f}. "
+        f"It is in your basket -- anything else, ji?"
+    )
+
+
 def _run_tool(tool_map: dict[str, Any], name: str, args: dict[str, Any]) -> str:
     tool = tool_map.get(name)
     if tool is None:
@@ -143,13 +174,7 @@ async def _attempt(
     latency = int((time.monotonic() - started) * 1000)
     reply = (last_text or "").strip()
     if not reply:
-        # The model ended on a tool call with nothing to say. Fall back to the
-        # gate's own sentence rather than shipping an empty bubble.
-        reply = (
-            ctx.last_decision.customer_reason
-            if ctx.last_decision
-            else "Tell me which item you are looking at and I will check the price."
-        )
+        reply = gate_sentence(ctx)
     return AgentResult(
         reply=reply,
         provider=spec.name,
@@ -211,13 +236,10 @@ def deterministic_reply(ctx: OfferContext, user_message: str) -> AgentResult:
     decision = ctx.last_decision
     if decision is None:
         reply = f"{best.name} is {best.price_paise / 100:,.2f} rupees."
-    elif decision.approved:
-        reply = (
-            f"{best.name} -- {decision.customer_reason} "
-            f"That is Rs {decision.final_amount_paise / 100:,.2f} for {qty}."
-        )
     else:
-        reply = f"{best.name} -- {decision.customer_reason}"
+        # Same sentence the tool-calling path falls back to, so a shopper
+        # cannot tell from the wording which tier answered them.
+        reply = gate_sentence(ctx)
 
     return AgentResult(
         reply=reply,
@@ -243,6 +265,12 @@ async def run_agent(
     for spec in llmmod.provider_chain():
         # A fresh context per attempt: a half-finished tool trail from a
         # provider that timed out must not be attributed to the next one.
+        # The tier fields were missing from this copy, and their absence was
+        # silent: every attempt ran at the default cap_fraction of 10000, so
+        # get_customer_standing always said "new shopper" and the customer cap
+        # was never applied during the NEGOTIATION -- while payment_service.
+        # accept() applied it faithfully. A shopper could be quoted a rate the
+        # checkout would then refuse. Copy the whole context.
         attempt_ctx = OfferContext(
             catalog=ctx.catalog,
             slot_ceiling_bps=ctx.slot_ceiling_bps,
@@ -255,6 +283,10 @@ async def run_agent(
             reserved_paise=ctx.reserved_paise,
             turn_count=ctx.turn_count,
             max_turns=ctx.max_turns,
+            tier_key=ctx.tier_key,
+            tier_cap_fraction_bps=ctx.tier_cap_fraction_bps,
+            tier_stats=ctx.tier_stats,
+            cart=ctx.cart,
         )
         try:
             result = await _attempt(spec, attempt_ctx, system_prompt, history, user_message)
@@ -269,6 +301,12 @@ async def run_agent(
         ctx.last_decision = attempt_ctx.last_decision
         ctx.last_sku = attempt_ctx.last_sku
         ctx.last_qty = attempt_ctx.last_qty
+        # Both of these were dropped on the floor. last_addon meant an upsell
+        # that went through the gate was never recorded in the audit log;
+        # cart_ops would mean an item the shopper was told they had never
+        # reached their basket.
+        ctx.last_addon = attempt_ctx.last_addon
+        ctx.cart_ops = attempt_ctx.cart_ops
         return result
 
     result = deterministic_reply(ctx, user_message)

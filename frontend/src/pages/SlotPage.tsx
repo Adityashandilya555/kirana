@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import CartPanel from '../components/CartPanel'
 import ChatBubble, { TypingBubble } from '../components/ChatBubble'
 import OfferCard from '../components/OfferCard'
-import { ApiError, apiPost } from '../lib/api'
-import type { ChatReply, Offer, SessionPayload, Turn } from '../lib/api'
+import { ApiError, apiGet, apiPost, EMPTY_CART } from '../lib/api'
+import type { Cart, ChatReply, Offer, SessionPayload, Turn } from '../lib/api'
 import { openCheckout, pollUntilSettled } from '../lib/razorpay'
 import type { AcceptedOrder } from '../lib/razorpay'
 
 /**
- * The customer's whole experience: scan a sticker, land here, haggle.
+ * The customer's whole experience: scan a sticker, land here, haggle, pay once.
  *
  * Layout notes that are load-bearing on Android Chrome. The keyboard resizes
  * only the VISUAL viewport (Chrome 108+), so `100dvh` alone does not keep the
@@ -21,21 +22,40 @@ import type { AcceptedOrder } from '../lib/razorpay'
  * bounds.Decision. It is never parsed out of the assistant's sentence: if the
  * prose and the gate ever disagree, the number the shopper can act on is the
  * gate's.
+ *
+ * THE BASKET is server state, not React state. Every reply carries the whole
+ * cart and this page renders whatever it was handed. There is no local add,
+ * no optimistic line, and no arithmetic here -- the totals on screen are the
+ * ones Postgres summed, which is the same function the checkout re-derives
+ * from and the bill prints from. A number a shopper reads must be a number
+ * somebody can be charged.
  */
 /** Where this device remembers the shopper's number, so a reload during a
  *  haggle does not stop to ask again. Their own number, their own phone. */
 const PHONE_KEY = 'kirana.phone'
+
+/** A payment that got as far as Razorpay and has not produced a redemption
+ *  code yet. Kept so the screen can say what is happening and offer a retry,
+ *  instead of leaving a button spinning for ninety seconds and then giving up
+ *  silently. */
+interface Pending {
+  orderId: string
+  message: string
+  retrying: boolean
+}
 
 export default function SlotPage() {
   const { token } = useParams<{ token: string }>()
   const [session, setSession] = useState<SessionPayload | null>(null)
   const [turns, setTurns] = useState<Turn[]>([])
   const [offer, setOffer] = useState<Offer | null>(null)
+  const [cart, setCart] = useState<Cart>(EMPTY_CART)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [fatal, setFatal] = useState<{ code: string; message: string } | null>(null)
   const [manual, setManual] = useState('')
   const [paying, setPaying] = useState(false)
+  const [pending, setPending] = useState<Pending | null>(null)
   const [phone, setPhone] = useState('')
   const [started, setStarted] = useState(false)
   const navigate = useNavigate()
@@ -54,6 +74,13 @@ export default function SlotPage() {
       })
       setSession(payload)
       setTurns(payload.transcript ?? [])
+      // A reload mid-shop must find the basket where it was left. It lives in
+      // Postgres keyed to the session, so resuming is a read, not a restore.
+      setCart(
+        await apiGet<Cart>(`/api/v1/sessions/${payload.session_id}/cart`).catch(
+          () => EMPTY_CART,
+        ),
+      )
     } catch (e) {
       if (e instanceof ApiError) setFatal({ code: e.code, message: e.message })
       else
@@ -119,6 +146,7 @@ export default function SlotPage() {
       )
       setTurns((t) => [...t, { role: 'assistant', content: reply.reply }])
       if (reply.offer) setOffer(reply.offer)
+      if (reply.cart) setCart(reply.cart)
     } catch (e) {
       const message =
         e instanceof ApiError
@@ -130,25 +158,56 @@ export default function SlotPage() {
     }
   }
 
+  const note = useCallback(
+    (content: string) => setTurns((t) => [...t, { role: 'system', content }]),
+    [],
+  )
+
   /**
-   * Accept → checkout → settle → redemption screen.
+   * Wait for a payment to produce a redemption code, and go there.
+   *
+   * Split out of `pay` because it is also the RETRY. The old code polled
+   * inline, and when the poll came back empty it printed "Paid, but the
+   * receipt is taking a moment" and stopped — leaving a customer who has
+   * genuinely paid with no code, no QR for the shopkeeper to scan, and nothing
+   * on screen to press. A webhook that lands thirty seconds after the poll
+   * gave up settles perfectly well; there just has to be a way to look again.
+   */
+  const settleAndGo = useCallback(
+    async (orderId: string, sessionId: string): Promise<boolean> => {
+      const settled = await pollUntilSettled(orderId, sessionId)
+      const code = settled?.redemption_token as string | undefined
+      if (code) {
+        setPending(null)
+        navigate(`/r/${code}`)
+        return true
+      }
+      return false
+    },
+    [navigate],
+  )
+
+  /**
+   * Checkout → settle → redemption screen. One order for the whole basket.
    *
    * Every exit is handled, not just the happy one: a dismissed sheet and a
    * failed card both release the reservation, or the discount stays held for
    * the rest of the demo. If the checkout handler succeeds but `confirm` does
-   * not come back (a dropped callback), polling takes over — the webhook and
-   * the poll both settle through the same plpgsql function, so whichever wins
-   * produces the same row.
+   * not come back (a dropped callback, or a signature the SDK did not return),
+   * polling takes over — the webhook and the poll both settle through the same
+   * plpgsql function, so whichever wins produces the same row.
+   *
+   * A payment that reached Razorpay and has not yet produced a code is kept in
+   * `pending`, which renders a strip with a retry. Nothing here ever ends in a
+   * screen the customer cannot act on.
    */
   async function pay() {
-    if (!offer || !session || paying) return
+    if (!session || paying || cart.count === 0) return
     setPaying(true)
-    const note = (content: string) =>
-      setTurns((t) => [...t, { role: 'system', content }])
     try {
       const order = await apiPost<AcceptedOrder>(
-        `/api/v1/sessions/${session.session_id}/accept`,
-        { sku: offer.sku, qty: offer.qty, discount_bps: offer.granted_bps },
+        `/api/v1/sessions/${session.session_id}/checkout`,
+        {},
       )
 
       if (order.stub || !order.key_id) {
@@ -158,38 +217,56 @@ export default function SlotPage() {
 
       const outcome = await openCheckout(order, session.merchant.name)
 
-      if ('dismissed' in outcome) {
+      if ('dismissed' in outcome || 'failed' in outcome) {
         await apiPost(
           `/api/v1/payments/${order.order_id}/release?session_id=${encodeURIComponent(session.session_id)}`,
           {},
         ).catch(() => {})
-        note('Checkout closed. Your offer is still open.')
-        return
-      }
-      if ('failed' in outcome) {
-        await apiPost(
-          `/api/v1/payments/${order.order_id}/release?session_id=${encodeURIComponent(session.session_id)}`,
-          {},
-        ).catch(() => {})
-        note(`${outcome.failed} Your offer is still open.`)
+        note(
+          'failed' in outcome
+            ? `${outcome.failed} Your basket is still here.`
+            : 'Checkout closed. Your basket is still here.',
+        )
         return
       }
 
-      let settled: Record<string, unknown> | null = null
+      // Past this point the money has moved. Never tell the customer to try
+      // again from here — from now on the only question is where the code is.
+      setPending({
+        orderId: order.order_id,
+        message: 'Payment received — getting your code…',
+        retrying: true,
+      })
+
+      let code: string | undefined
       try {
-        settled = await apiPost<Record<string, unknown>>('/api/v1/payments/confirm', {
-          order_id: outcome.order_id,
-          payment_id: outcome.payment_id,
-          signature: outcome.signature,
-        })
+        const settled = await apiPost<Record<string, unknown>>(
+          '/api/v1/payments/confirm',
+          {
+            order_id: outcome.order_id,
+            payment_id: outcome.payment_id,
+            signature: outcome.signature,
+          },
+        )
+        code = settled?.redemption_token as string | undefined
       } catch {
-        note('Payment received — confirming with the shop…')
-        settled = await pollUntilSettled(order.order_id, session.session_id)
+        // The confirm callback is the fast path, not the only one.
       }
 
-      const token = settled?.redemption_token as string | undefined
-      if (token) navigate(`/r/${token}`)
-      else note('Paid, but the receipt is taking a moment. Do not pay again.')
+      if (code) {
+        setPending(null)
+        navigate(`/r/${code}`)
+        return
+      }
+      if (await settleAndGo(order.order_id, session.session_id)) return
+
+      setPending({
+        orderId: order.order_id,
+        message:
+          'Your payment went through, but the shop’s confirmation has not ' +
+          'arrived yet. Do not pay again — tap below and I will check again.',
+        retrying: false,
+      })
     } catch (e) {
       note(
         e instanceof ApiError
@@ -198,6 +275,37 @@ export default function SlotPage() {
       )
     } finally {
       setPaying(false)
+    }
+  }
+
+  async function retryPending() {
+    if (!pending || !session || pending.retrying) return
+    setPending({ ...pending, retrying: true, message: 'Checking with the shop…' })
+    const found = await settleAndGo(pending.orderId, session.session_id)
+    if (!found) {
+      setPending({
+        orderId: pending.orderId,
+        message:
+          'Still not confirmed. Your payment is safe and the shop can find it ' +
+          'from order ' + pending.orderId + '. Do not pay again.',
+        retrying: false,
+      })
+    }
+  }
+
+  async function removeLine(sku: string) {
+    if (!session) return
+    try {
+      setCart(
+        await apiPost<Cart>(
+          `/api/v1/sessions/${session.session_id}/cart/remove`,
+          { sku },
+        ),
+      )
+      // The card on screen is a receipt for a line that no longer exists.
+      if (offer?.sku === sku) setOffer(null)
+    } catch {
+      note('Could not take that out just now. Try once more.')
     }
   }
 
@@ -365,16 +473,38 @@ export default function SlotPage() {
         {sending && <TypingBubble />}
         {offer && (
           <div className="pt-1">
-            <OfferCard
-              offer={offer}
-              itemName={itemName}
-              onAccept={() => void pay()}
-              accepting={paying}
-            />
+            <OfferCard offer={offer} itemName={itemName} />
           </div>
         )}
         <div ref={endRef} />
       </div>
+
+      {/* Money has moved and no code has arrived. This is the one state the
+          old page had no answer for: it printed a sentence into the transcript
+          and left the customer holding a phone with nothing to press. */}
+      {pending && (
+        <div className="flex-none border-t border-warn-line bg-warn-bg px-4 py-3">
+          <p className="text-xxs leading-relaxed text-ink">{pending.message}</p>
+          <button
+            type="button"
+            onClick={() => void retryPending()}
+            disabled={pending.retrying}
+            className="mt-2 rounded-xl border border-hairline bg-card px-3 py-1.5
+                       text-xxs font-semibold text-ink transition-colors
+                       hover:bg-sunk disabled:text-ink-faint"
+          >
+            {pending.retrying ? 'Checking…' : 'Check again'}
+          </button>
+        </div>
+      )}
+
+      <CartPanel
+        cart={cart}
+        onPay={() => void pay()}
+        onRemove={(sku) => void removeLine(sku)}
+        paying={paying}
+        disabled={pending !== null}
+      />
 
       <form
         className="chat-composer border-t border-hairline bg-card px-3 py-2.5"

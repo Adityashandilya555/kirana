@@ -40,6 +40,22 @@ interface Redemption {
   sku: string | null
   qty: number | null
   final_amount_paise: number | null
+  /** The basket, so the screen shows what was actually bought rather than
+   *  whichever line happened to be largest. Absent on a redemption from
+   *  before carts existed, which is why every read of it is guarded. */
+  bill?: {
+    items: {
+      sku: string
+      name: string
+      qty: number
+      granted_bps: number
+      line_total_paise: number
+    }[]
+    count: number
+    gross_paise: number
+    discount_paise: number
+    total_paise: number
+  }
 }
 
 type Check =
@@ -142,14 +158,56 @@ export default function RedemptionPage() {
         <p className="mt-3 font-mono text-sm tracking-wider text-ink">
           {data.slot_token}
         </p>
-        {data.granted_bps != null && (
-          <p className="mt-2 text-sm text-ink-soft">
-            {data.sku ?? 'item'} × {data.qty ?? 1} · {pct(data.granted_bps)} off
-            {data.final_amount_paise != null &&
-              ` · paid ${rupees(data.final_amount_paise)}`}
+        {data.final_amount_paise != null && (
+          <p className="mt-2 text-sm font-semibold text-ink">
+            paid {rupees(data.final_amount_paise)}
           </p>
         )}
       </section>
+
+      {/* What is in the bag, line by line. Each line carries the rate that
+          line was granted — a basket bought at three different discounts is
+          the normal case now, and one blended percentage would say nothing
+          true about any of the items in it. */}
+      {(data.bill?.items?.length ?? 0) > 0 ? (
+        <section className="rounded-2xl border border-hairline bg-card p-4">
+          <ul className="divide-y divide-hairline-faint">
+            {data.bill!.items.map((line) => (
+              <li key={line.sku} className="flex items-baseline gap-3 py-2">
+                <span className="min-w-0 flex-1 truncate text-half text-ink">
+                  {line.name}
+                  {line.qty > 1 && (
+                    <span className="text-ink-soft"> × {line.qty}</span>
+                  )}
+                </span>
+                {line.granted_bps > 0 && (
+                  <span className="shrink-0 text-xxs text-pass">
+                    {pct(line.granted_bps)} off
+                  </span>
+                )}
+                <span className="tnum shrink-0 font-mono text-half text-ink">
+                  {rupees(line.line_total_paise)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {data.bill!.discount_paise > 0 && (
+            <p className="mt-3 border-t border-hairline pt-3 text-xxs text-ink-soft">
+              You saved{' '}
+              <span className="font-semibold text-pass">
+                {rupees(data.bill!.discount_paise)}
+              </span>{' '}
+              off a shelf total of {rupees(data.bill!.gross_paise)}.
+            </p>
+          )}
+        </section>
+      ) : (
+        data.granted_bps != null && (
+          <p className="text-center text-sm text-ink-soft">
+            {data.sku ?? 'item'} × {data.qty ?? 1} · {pct(data.granted_bps)} off
+          </p>
+        )
+      )}
 
       <section
         className={`rounded-2xl border p-4 ${

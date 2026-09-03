@@ -1,12 +1,17 @@
-"""Customer-facing payment routes: accept, confirm, poll.
+"""Customer-facing payment routes: cart, checkout, confirm, poll.
 
 No merchant key. The session id is the credential, handed out only in exchange
 for a slot token.
 
-`accept` is the route that re-runs the gate. The model approved this offer
-several seconds ago; between then and now the budget may have moved and other
-slots may have redeemed, so `payment_service.accept()` re-evaluates
-`bounds.check()` against live campaign state before reserving anything.
+`checkout` is the route a phone calls, and it is the one that re-runs the gate
+-- for every line in the basket. The model approved those lines a conversation
+ago; between then and now the budget may have moved and other slots may have
+redeemed, so `payment_service.checkout()` re-evaluates `bounds.check()` against
+live campaign state before reserving anything, and `reserve_cart` does it a
+second time in SQL inside the transaction that actually moves the money.
+
+`accept` is the older single-item form. It is what the machine-buyer flow uses
+and what the payment tests pin, and it re-gates exactly the same way.
 """
 
 from __future__ import annotations
@@ -18,7 +23,8 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import DbDep
 from app.core import bounds, rzp
-from app.services import payment_service
+from app.core.db import RpcError
+from app.services import cart_service, payment_service
 from app.services.payment_service import (
     BAD_REQUEST_CODES,
     CONFLICT_CODES,
@@ -35,6 +41,10 @@ class AcceptBody(BaseModel):
     sku: str = Field(min_length=1, max_length=32)
     qty: int = Field(default=1, ge=1, le=bounds.MAX_QTY)
     discount_bps: int = Field(ge=0, le=bounds.MAX_BPS)
+
+
+class RemoveBody(BaseModel):
+    sku: str = Field(min_length=1, max_length=32)
 
 
 class ConfirmBody(BaseModel):
@@ -63,6 +73,31 @@ NOT_CONFIGURED = HTTPException(
 )
 
 
+def _captured_upstream(order_id: str, payment_id: str) -> bool:
+    """Does Razorpay itself say this payment was captured against this order?
+
+    Deliberately narrow: the payment id must match one Razorpay lists for
+    THIS order, and its status must be `captured`. An order id alone proves
+    nothing -- it is visible in the checkout sheet -- and neither does a
+    payment id on its own. The pair, confirmed by the provider, does.
+
+    Returns False rather than raising on any upstream problem, so a Razorpay
+    outage degrades to the ordinary BAD_SIGNATURE refusal and the polling path
+    instead of a 500 in front of a customer who has just paid.
+    """
+    if rzp.stub_mode():
+        return False
+    try:
+        payments = rzp.order_payments(order_id)
+    except Exception:  # noqa: BLE001 - a provider blip must not 500 here
+        log.exception("confirm: could not reach Razorpay for order %s", order_id)
+        return False
+    return any(
+        p.get("id") == payment_id and p.get("status") == "captured"
+        for p in payments
+    )
+
+
 def _http(exc: PaymentError) -> HTTPException:
     code = (
         status.HTTP_404_NOT_FOUND if exc.code in NOT_FOUND_CODES
@@ -88,6 +123,56 @@ async def accept(session_id: str, body: AcceptBody, db: DbDep) -> dict:
         raise _http(exc) from exc
 
 
+@router.get("/sessions/{session_id}/cart")
+async def read_cart(session_id: str, db: DbDep) -> dict:
+    """The basket. Safe to poll; it is a read.
+
+    No merchant key and no ownership check beyond the session id, which is the
+    credential everywhere else on this router: a uuid handed out only in
+    exchange for a slot token. What it discloses is what the holder of that
+    uuid negotiated themselves.
+    """
+    return await cart_service.load(db, session_id)
+
+
+@router.post("/sessions/{session_id}/cart/remove")
+async def remove_from_cart(session_id: str, body: RemoveBody, db: DbDep) -> dict:
+    """Take a line out of the basket from the UI rather than by asking.
+
+    Removing is safe to expose and adding is not: an add carries a discount,
+    and the only thing allowed to decide a discount is the gate. A shopper who
+    wants something added asks the assistant, which proposes, and the gate
+    answers. There is no route that writes a rate the client chose.
+    """
+    try:
+        return cart_service.normalise(await db.rpc("remove_cart_item", {
+            "p_session_id": session_id, "p_sku": body.sku,
+        }))
+    except RpcError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+
+
+@router.post("/sessions/{session_id}/checkout")
+async def checkout(session_id: str, db: DbDep) -> dict:
+    """One Razorpay order for the whole basket.
+
+    No body: the basket is server-side state and the client does not get to
+    describe it. Sending line items from the phone would mean trusting a client
+    for both the products and their rates, which is the entire thing the gate
+    exists to prevent.
+    """
+    try:
+        return await payment_service.checkout(db, session_id)
+    except rzp.PaymentConfigError as exc:
+        log.warning("checkout refused: razorpay not configured")
+        raise NOT_CONFIGURED from exc
+    except PaymentError as exc:
+        raise _http(exc) from exc
+
+
 @router.post("/payments/confirm")
 async def confirm(body: ConfirmBody, db: DbDep) -> dict:
     """The checkout handler path.
@@ -96,6 +181,22 @@ async def confirm(body: ConfirmBody, db: DbDep) -> dict:
     different value and belongs to a different route). A bad signature is
     rejected before settlement -- this is the one place a client-supplied
     payment id could otherwise be used to settle an order that was never paid.
+
+    WHEN THE HMAC DOES NOT VERIFY, we ask Razorpay directly before refusing.
+    Not as a softening: asking the payment provider whether it captured this
+    payment against this order is a STRICTER check than recomputing an HMAC
+    over ids the client just handed us. It exists because the failure it
+    replaces is invisible and total -- the customer's money is gone, the
+    handler's callback is rejected with BAD_SIGNATURE, the phone falls back to
+    polling, and if the webhook is also misconfigured nothing ever settles.
+    The screen sits on "Opening checkout..." for ninety seconds and then says
+    the receipt is taking a moment. It never arrives, and there is no QR for
+    the merchant to scan.
+
+    A missing signature is the common cause: some checkout flows return the
+    handler payload without `razorpay_signature`, and `verify` on an empty
+    string is a guaranteed failure. Stub mode is excluded from the fallback --
+    there is no upstream to ask.
     """
     try:
         verified = rzp.verify_checkout_signature(
@@ -105,6 +206,25 @@ async def confirm(body: ConfirmBody, db: DbDep) -> dict:
         raise NOT_CONFIGURED from exc
 
     if not verified:
+        verified = _captured_upstream(body.order_id, body.payment_id)
+        if verified:
+            log.warning(
+                "confirm: signature check failed for %s but Razorpay reports "
+                "payment %s captured against it; settling on the upstream record",
+                body.order_id, body.payment_id,
+            )
+
+    if not verified:
+        # ERROR, not a silent 400. Every failure of this route means a customer
+        # who has paid is now watching a spinner while the phone falls back to
+        # polling, and until this line existed the only trace of it anywhere
+        # was the absence of a settlement.
+        log.error(
+            "confirm REFUSED order=%s payment=%s: signature did not verify and "
+            "Razorpay does not report it captured (signature %s)",
+            body.order_id, body.payment_id,
+            "absent" if not body.signature else "present",
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "BAD_SIGNATURE",
@@ -113,6 +233,7 @@ async def confirm(body: ConfirmBody, db: DbDep) -> dict:
 
     row = await db.rpc("get_payment_status", {"p_rzp_order_id": body.order_id})
     if not row:
+        log.error("confirm: no session holds order %s", body.order_id)
         raise HTTPException(
             status_code=404,
             detail={"code": "ORDER_NOT_FOUND", "message": "No such order."},
@@ -133,6 +254,15 @@ async def confirm(body: ConfirmBody, db: DbDep) -> dict:
             source="checkout_handler",
         )
     except PaymentError as exc:
+        # Same argument as the refusal above: a plpgsql code like
+        # AMOUNT_MISMATCH reaching here is a paid customer with no receipt, and
+        # RpcError only logs the codes it does NOT recognise -- so the ones we
+        # wrote ourselves were the quietest of all.
+        log.error(
+            "confirm FAILED to settle order=%s payment=%s: %s (%s); the phone "
+            "will fall back to polling",
+            body.order_id, body.payment_id, exc.code, exc.message,
+        )
         raise _http(exc) from exc
     return settled
 

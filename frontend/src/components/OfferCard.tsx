@@ -1,9 +1,15 @@
 import { useState } from 'react'
 import type { Offer } from '../lib/api'
-import { Button, Money, Pct } from './ui'
+import { Money, Pct } from './ui'
 
 /**
- * The offer, as a shopper sees it: a price and a button.
+ * One negotiation, as a shopper sees it: what this item now costs.
+ *
+ * It used to carry the Pay button, and that was the bug. A card with its own
+ * Pay button is a card that claims to be the whole order — so negotiating a
+ * second item silently replaced the first, and the only thing a shopper could
+ * buy was whatever they had haggled most recently. The button now lives on
+ * the basket, once, and this card is the receipt for one line in it.
  *
  * The mechanism is deliberately one tap away rather than on the face of the
  * card. A judge holding the phone can open it and see asked-versus-granted and
@@ -27,13 +33,9 @@ const BOUND_LABEL: Record<string, string> = {
 export default function OfferCard({
   offer,
   itemName,
-  onAccept,
-  accepting = false,
 }: {
   offer: Offer
   itemName?: string
-  onAccept?: () => void
-  accepting?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const bound = offer.binding_constraint
@@ -94,14 +96,13 @@ export default function OfferCard({
         </dl>
       )}
 
-      {onAccept && (
-        <div className="mt-5">
-          <Button onClick={onAccept} disabled={accepting} full>
-            {accepting ? 'Opening checkout…' : (
-              <>Pay <Money paise={offer.final_amount_paise} /></>
-            )}
-          </Button>
-        </div>
+      {offer.added_to_cart && (
+        /* A quiet confirmation, not a call to action. The shopper's next move
+           is to keep talking; the Pay button is on the basket below and stays
+           there however many things they add. */
+        <p className="mt-4 flex items-center gap-1.5 text-xxs font-medium text-pass">
+          <span aria-hidden>✓</span> Added to your basket
+        </p>
       )}
     </div>
   )
