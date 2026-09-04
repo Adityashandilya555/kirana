@@ -5,7 +5,7 @@
 -- Supabase installs pgcrypto into the `extensions` schema, not public. With
 -- `set search_path = public` the function cannot see it, so EVERY settlement
 -- fails with "function gen_random_bytes(integer) does not exist" -- on the
--- checkout handler, the webhook and the polling path alike. Phase 4 would
+-- checkout handler, the webhook and the polling path alike. Settlement would
 -- have hit this on its first test payment.
 --
 -- It was masked for a long time because gen_random_uuid() is ALSO a
@@ -13,7 +13,7 @@
 -- while the one call to gen_random_bytes did not.
 --
 -- ALTER rather than CREATE OR REPLACE on purpose: CREATE re-grants EXECUTE to
--- PUBLIC, which would silently undo the Phase 2A revoke. ALTER leaves
+-- PUBLIC, which would silently undo the earlier revoke. ALTER leaves
 -- privileges alone, so this file needs no trailing revoke block.
 --
 -- A bare local Postgres has no `extensions` schema. Postgres ignores missing

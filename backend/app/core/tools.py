@@ -1,16 +1,14 @@
 """The tools the agent may call.
 
-Ported in shape from ~/agent1's placement agent. Two ideas carry over and are
-the reason this is an agent rather than a chain:
+Two ideas make this an agent rather than a chain:
 
-  * `find_item` is a FORCED DEPENDENCY, exactly like `find_student`. The model
-    cannot price anything until it has resolved free text to a real sku, so
-    the tool order is produced at runtime and differs per question.
+  * `find_item` is a FORCED DEPENDENCY. The model cannot price anything until
+    it has resolved free text to a real sku, so the tool order is produced at
+    runtime and differs per question.
 
   * `propose_offer` REFUSES AND EXPLAINS. When the gate clamps, the tool hands
     back the reason and `max_allowed_bps`, so the model re-proposes inside the
-    bound from the error text alone -- the same self-correction the notebook
-    got from "unknown student_id '101'. Call find_student first."
+    bound from the error text alone.
 
 What the model never sees, from any tool or the prompt: `cost_paise`, the
 campaign's remaining budget, and the slot's `ceiling_bps`. They are read from
@@ -189,7 +187,14 @@ def _json(payload: dict[str, Any]) -> str:
 
 
 def _score(item: CatalogItem, query: str) -> int:
-    """Cheap relevance. No fuzzy library: the catalog is six items."""
+    """Cheap relevance, no fuzzy library.
+
+    A slot's catalogue is what one sticker can sell, which is a shelf rather
+    than a shop -- tens of items, not thousands. Exact and substring matches
+    carry it; the word-overlap fallback is for "5kg wheat flour" against
+    "Aashirvaad Whole Wheat Atta 5kg". If a shelf ever grows past a few dozen
+    items this is the thing to replace, not the model.
+    """
     q = query.lower().strip()
     if not q:
         return 0
@@ -205,7 +210,7 @@ def _score(item: CatalogItem, query: str) -> int:
 
 
 def build_tools(ctx: OfferContext) -> tuple[list[BaseTool], dict[str, BaseTool]]:
-    """Bind the five tools to one session's context.
+    """Bind the tools to one session's context.
 
     Built per request rather than module-level because every tool needs the
     session's ceilings and budget, and those must never be global state.

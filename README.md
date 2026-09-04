@@ -20,11 +20,22 @@ customer redeems, their own phone recomputes the Merkle path in the browser and
 confirms the discount they got was inside the number the merchant promised
 before the conversation started.
 
+## Documentation
+
+Full documentation is in [`docs/`](docs/README.md):
+
+- [architecture.md](docs/architecture.md) — the parts, and how a request moves
+- [security-model.md](docs/security-model.md) — the guarantees and where each is enforced
+- [api.md](docs/api.md) — every endpoint, grouped by who may call it
+- [database.md](docs/database.md) — tables, functions, migrations
+- [operations.md](docs/operations.md) — deploying, and the failures that have actually happened
+
 ## Layout
 
     sql/        schema, plpgsql functions, demo seed
     backend/    FastAPI + LangChain agent (Railway)
     frontend/   React + Vite + Tailwind v4 (Vercel)
+    docs/       the above
 
 ## Quickstart
 

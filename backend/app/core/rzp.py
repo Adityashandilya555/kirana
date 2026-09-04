@@ -22,7 +22,8 @@ wrong in ways that look like a bug in your own code:
 
 DEMO_MODE lets every route above this run without credentials: the client is
 None, order creation returns a synthetic order id, and signature checks are
-skipped. That is what makes Phase 4 testable before the keys arrive -- and it
+skipped. That is what makes the payment path testable before the keys arrive
+-- and it
 refuses to engage when APP_ENV is production, so it cannot be left on by
 accident in the one place it would matter.
 """

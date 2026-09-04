@@ -1,4 +1,4 @@
-"""The five tools, and the contract that makes the gate work.
+"""The agent's tools, and the contract that makes the gate work.
 
 tools.py is the largest module in the project and had no direct tests. The
 properties below are the ones the whole security argument rests on: the model

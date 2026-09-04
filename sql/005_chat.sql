@@ -1,6 +1,6 @@
 -- Session and audit plumbing for the chat turn.
 --
--- Phase 2B needs three things the schema had no way to do: resolve a scanned
+-- The chat surface needs three things the schema had no way to do: resolve a scanned
 -- token into a session, append a turn, and write a decisions row. The data
 -- layer is rpc()-only by design (see core/db.py), so each is a named function
 -- rather than ad-hoc SQL in the application.
