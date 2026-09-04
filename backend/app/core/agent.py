@@ -108,7 +108,17 @@ def gate_sentence(ctx: OfferContext) -> str:
     qty = f" x{ctx.last_qty}" if ctx.last_qty > 1 else ""
 
     if not decision.approved:
-        return f"{name}{qty} -- {decision.customer_reason}"
+        # Do not stop at the refusal. Three turns of the identical sentence --
+        # "Aashirvaad Select Atta 10kg -- I cannot go below cost on this one" --
+        # is what a shopper actually got while asking about rice, and a bubble
+        # that repeats verbatim reads as a crashed app rather than a shop
+        # holding its price. Say the no, then hand the conversation back.
+        instead = ctx.discountable_alternatives(ctx.last_sku or "", limit=2)
+        line = f"{name}{qty} -- {decision.customer_reason}"
+        if instead:
+            names = " or ".join(c.name for c in instead)
+            return f"{line} I can do something on {names} though, ji -- shall I?"
+        return f"{line} Tell me what else you need and I will check it, ji."
     return (
         f"{name}{qty} at {decision.granted_bps / 100:g}% off, "
         f"Rs {decision.final_amount_paise / 100:,.2f}. "
