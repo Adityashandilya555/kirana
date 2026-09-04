@@ -42,6 +42,91 @@ def _call(ctx: OfferContext, name: str, **args) -> dict:
     return json.loads(tool_map[name].invoke(args))
 
 
+# ------------------------------------------- refusing without looping ------
+#
+# A shopper asked for atta on a campaign whose margin floor sat above the
+# margin of seventeen of its twenty products. They got:
+#
+#   "Aashirvaad Select Atta 10kg -- I cannot go below cost on this one."
+#
+# Then they asked for basmati rice, and got the same sentence about the atta.
+# Then again. The shop looked frozen for three turns, because propose_offer
+# answered a hard refusal with "re-propose at 0 bps or lower" -- advice with no
+# number behind it, which the model followed until it ran out of steps and
+# produced no sentence at all.
+
+
+def test_a_hard_refusal_does_not_ask_the_model_to_re_propose() -> None:
+    """MARGIN_FLOOR_BLOCKS_ALL grants 0 and allows 0, so the old
+    `granted < proposed` branch fired and sent the model round the loop."""
+    out = _call(_ctx(), "propose_offer", sku="SUGAR1", qty=1,
+                discount_bps=500, message="")
+
+    assert out["approved"] is False
+    assert out["retry"] is False
+    assert "re-propose" not in out["reason"].lower()
+    assert "do not call propose_offer for sugar1 again" in out["reason"].lower()
+
+
+def test_a_hard_refusal_offers_something_it_can_actually_discount() -> None:
+    """A shop that can only say no is not a shop. Tea clears the same floor
+    sugar fails, so the refusal carries it."""
+    out = _call(_ctx(), "propose_offer", sku="SUGAR1", qty=1,
+                discount_bps=500, message="")
+
+    assert [i["sku"] for i in out["can_discount_instead"]] == ["TEA250"]
+    assert "Tata Tea Gold 250g" in out["reason"]
+
+
+def test_the_alternatives_never_include_something_equally_refused() -> None:
+    """Suggesting a second item the gate will also refuse turns one dead end
+    into two."""
+    ctx = _ctx(margin_floor_bps=9000)  # nothing on this shelf clears it
+    out = _call(ctx, "propose_offer", sku="SUGAR1", qty=1,
+                discount_bps=500, message="")
+
+    assert out["approved"] is False
+    assert "can_discount_instead" not in out
+    assert ctx.discountable_alternatives("SUGAR1") == []
+
+
+def test_a_clamp_still_tells_the_model_the_number_to_retry_at() -> None:
+    """The other half must not regress: when re-proposing genuinely works, the
+    refuse-and-explain loop is what makes the model correct itself."""
+    out = _call(_ctx(), "propose_offer", sku="TEA250", qty=1,
+                discount_bps=9000, message="")
+
+    assert out["approved"] is True
+    assert out["retry"] is True
+    assert out["granted_bps"] == 1200
+    assert "re-propose" in out["reason"].lower()
+
+
+def test_an_approved_offer_is_not_marked_for_retry() -> None:
+    out = _call(_ctx(), "propose_offer", sku="TEA250", qty=1,
+                discount_bps=500, message="")
+    assert out["approved"] is True and out["retry"] is False
+
+
+def test_alternatives_exclude_the_item_that_was_refused() -> None:
+    ctx = _ctx()
+    assert "SUGAR1" not in {c.sku for c in ctx.discountable_alternatives("SUGAR1")}
+
+
+def test_the_refusal_sentence_hands_the_conversation_back() -> None:
+    """Three identical bubbles is what made it read as a crash. The fallback
+    says the no, then asks for the next thing."""
+    from app.core.agent import gate_sentence
+
+    ctx = _ctx()
+    _call(ctx, "propose_offer", sku="SUGAR1", qty=1, discount_bps=500, message="")
+    said = gate_sentence(ctx)
+
+    assert "Sugar 1kg" in said
+    assert "Tata Tea Gold 250g" in said
+    assert said.rstrip().endswith("?")
+
+
 # ------------------------------------------------------ what must not leak --
 def test_no_tool_ever_returns_a_cost() -> None:
     """cost_paise reaches the gate but must never reach the model. If it did,
