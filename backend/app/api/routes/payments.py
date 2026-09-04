@@ -131,6 +131,10 @@ async def read_cart(session_id: str, db: DbDep) -> dict:
     credential everywhere else on this router: a uuid handed out only in
     exchange for a slot token. What it discloses is what the holder of that
     uuid negotiated themselves.
+
+    Cannot fail: cart_service.load degrades to an empty basket and logs, so a
+    database that cannot answer costs the shopper their Pay button rather than
+    a 500 on the page they are standing in the shop reading.
     """
     return await cart_service.load(db, session_id)
 

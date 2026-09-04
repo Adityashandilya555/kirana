@@ -31,8 +31,32 @@ import type { AcceptedOrder } from '../lib/razorpay'
  * somebody can be charged.
  */
 /** Where this device remembers the shopper's number, so a reload during a
- *  haggle does not stop to ask again. Their own number, their own phone. */
+ *  haggle does not stop to ask again. Their own number, their own phone.
+ *
+ *  It is a REMEMBERED NUMBER, not a device id — nothing here fingerprints the
+ *  handset, and the shop cannot recognise a phone that has not typed a number
+ *  into it. That distinction is the whole reason `forget` exists below: a
+ *  device identifier would be a property of the object, but a number is a
+ *  claim about a person, and a person can hand their phone to somebody else. */
 const PHONE_KEY = 'kirana.phone'
+
+function remembered(): string {
+  try {
+    return localStorage.getItem(PHONE_KEY) ?? ''
+  } catch {
+    // Private browsing throws on access. A shopper who cannot be remembered
+    // is simply asked, which is the same as a first visit.
+    return ''
+  }
+}
+
+function forget(): void {
+  try {
+    localStorage.removeItem(PHONE_KEY)
+  } catch {
+    // Nothing to do: if it cannot be written it was never remembered.
+  }
+}
 
 /** A payment that got as far as Razorpay and has not produced a redemption
  *  code yet. Kept so the screen can say what is happening and offer a retry,
@@ -101,19 +125,35 @@ export default function SlotPage() {
    */
   useEffect(() => {
     if (!token || started) return
-    let remembered = ''
-    try {
-      remembered = localStorage.getItem(PHONE_KEY) ?? ''
-    } catch {
-      // Private browsing throws on access. A shopper who cannot be remembered
-      // is simply asked, which is the same as a first visit.
-    }
-    if (remembered) {
-      setPhone(remembered)
+    const saved = remembered()
+    if (saved) {
+      setPhone(saved)
       setStarted(true)
-      void open(token, remembered)
+      void open(token, saved)
     }
   }, [token, started, open])
+
+  /**
+   * Hand the phone to somebody else.
+   *
+   * Without this the first number ever typed on a handset was permanent: the
+   * doorstep was skipped silently on every later scan, there was nothing on
+   * screen saying who the shop thought you were, and no way to say otherwise.
+   * On a shared phone — or the demo handset — the second person inherits the
+   * first person's customer record, which is not a cosmetic problem: it is
+   * their tier deciding someone else's ceiling, and the one-discount-per-
+   * customer index refusing them for a purchase they did not make.
+   */
+  function switchCustomer() {
+    forget()
+    setPhone('')
+    setStarted(false)
+    setSession(null)
+    setTurns([])
+    setOffer(null)
+    setCart(EMPTY_CART)
+    setPending(null)
+  }
 
   function beginWith(value: string) {
     if (!token) return
@@ -124,6 +164,11 @@ export default function SlotPage() {
       } catch {
         // Not being able to remember is not a reason to refuse to start.
       }
+    } else {
+      // Skipping now must also un-remember. Otherwise "skip" on a device that
+      // already holds a number is a no-op the next time round: the shopper
+      // declines to be identified and is identified anyway.
+      forget()
     }
     setStarted(true)
     void open(token, trimmed)
@@ -428,7 +473,9 @@ export default function SlotPage() {
 
         <p className="text-tiny leading-relaxed text-ink-faint">
           Used only to recognise you at this shop. It is never shown to the
-          assistant you are about to talk to.
+          assistant you are about to talk to. It stays on this phone so you are
+          not asked again, and you can change it any time from the top of the
+          chat.
         </p>
       </main>
     )
@@ -456,6 +503,40 @@ export default function SlotPage() {
           {session.merchant.store_line} · code{' '}
           <span className="font-mono">{session.slot.slot_token}</span>
         </p>
+        {/* Who the shop thinks you are, and a way out of it. The number was
+            remembered on this device, so it must be visible on this device --
+            an identity that decides your price and cannot be seen or changed
+            is not a convenience, it is a mistake waiting for the next person
+            to pick up the phone. */}
+        {session.customer.identified ? (
+          <p className="mt-1 text-xxs text-ink-soft">
+            {session.customer.returning ? 'Welcome back' : 'Shopping as'}{' '}
+            <span className="font-mono text-ink">
+              …{session.customer.phone_last4}
+            </span>
+            {' · '}
+            <button
+              type="button"
+              onClick={switchCustomer}
+              className="underline underline-offset-2 transition-colors hover:text-accent"
+            >
+              not you?
+            </button>
+          </p>
+        ) : (
+          <p className="mt-1 text-xxs text-ink-soft">
+            {session.phone_unreadable
+              ? 'That number could not be read, so you are being treated as a new shopper. '
+              : 'Shopping without a number. '}
+            <button
+              type="button"
+              onClick={switchCustomer}
+              className="underline underline-offset-2 transition-colors hover:text-accent"
+            >
+              add one
+            </button>
+          </p>
+        )}
       </header>
 
       <div ref={scrollRef} className="chat-scroll space-y-3 px-4 py-4">

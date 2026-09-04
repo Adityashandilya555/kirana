@@ -8,6 +8,10 @@ here instead.
 
 from __future__ import annotations
 
+import pytest
+
+from app.core.db import RpcError
+from app.services import cart_service
 from app.services.cart_service import EMPTY, CartOp, normalise, preview
 
 
@@ -148,3 +152,44 @@ def test_totals_are_summed_not_adjusted() -> None:
 def test_an_empty_basket_totals_zero_rather_than_raising() -> None:
     out = preview(dict(EMPTY), {})
     assert out["count"] == 0 and out["total_paise"] == 0
+
+
+# ------------------------------------------------- the outage this caused ---
+class _BrokenDb:
+    """A database that does not have the cart migration."""
+
+    name = "broken"
+
+    def __init__(self, code: str = "RPC_FAILED") -> None:
+        self.code = code
+
+    async def rpc(self, fn: str, params: dict | None = None):
+        raise RpcError(
+            fn, self.code, "The shop's system did not respond.",
+            f"Could not find the function public.{fn} in the schema cache",
+        )
+
+    async def close(self) -> None:
+        pass
+
+
+async def test_an_unreadable_cart_serves_an_empty_one_instead_of_raising() -> None:
+    """THE REGRESSION. The backend shipped ahead of sql/025_cart.sql, so
+    PostgREST answered "Could not find the function public.get_cart" on every
+    single message. load() is the first thing chat_turn calls, the RpcError
+    propagated all the way out, and every reply to every shopper became "The
+    shop's system did not respond." The whole negotiation was down because the
+    basket was missing.
+
+    A shop that cannot remember a basket must still be able to quote a price.
+    """
+    cart = await cart_service.load(_BrokenDb(), "s1")
+    assert cart == EMPTY
+
+
+@pytest.mark.parametrize("code", ["RPC_FAILED", "PGRST202", "SESSION_NOT_FOUND"])
+async def test_no_database_error_escapes_the_cart_read(code: str) -> None:
+    """Whatever the database says, the conversation survives it. This is a
+    read on the hot path of every turn; there is no failure of it worth
+    ending a customer's shopping trip over."""
+    assert await cart_service.load(_BrokenDb(code), "s1") == EMPTY

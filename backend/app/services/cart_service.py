@@ -123,7 +123,31 @@ def preview(cart: dict[str, Any], ops: dict[str, CartOp]) -> dict[str, Any]:
 
 
 async def load(db: DbBackend, session_id: str) -> dict[str, Any]:
-    return normalise(await db.rpc("get_cart", {"p_session_id": session_id}))
+    """The basket, or an empty one if the basket cannot be read.
+
+    NEVER raises. This is called at the top of every chat turn, and on the day
+    the backend shipped ahead of its migrations that made it the first thing a
+    shopper hit: PostgREST answered `Could not find the function
+    public.get_cart` on every message, the RpcError propagated out of
+    chat_turn, and the whole negotiation returned "The shop's system did not
+    respond." A shop that cannot remember a basket should still be able to
+    quote a price -- degrading to no basket is a bad afternoon, taking the
+    conversation down with it is a dead demo.
+
+    Logged at ERROR because the degraded state is otherwise invisible: the
+    chat looks fine and the Pay button simply never appears.
+    """
+    try:
+        return normalise(await db.rpc("get_cart", {"p_session_id": session_id}))
+    except RpcError as exc:
+        log.error(
+            "cart unreadable for session %s (%s: %s) -- serving an empty "
+            "basket; the negotiation still works but nothing can be bought. "
+            "If this says the function is missing, sql/025_cart.sql has not "
+            "been applied to this database.",
+            session_id, exc.code, exc.detail[:200],
+        )
+        return dict(EMPTY)
 
 
 async def flush(
