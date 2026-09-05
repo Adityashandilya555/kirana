@@ -1,10 +1,10 @@
 """Provider router.
 
-Ported from ~/agent1/movie_recommendation_agent.ipynb, which proved that
+Built on the observation that
 Ollama Cloud speaks the OpenAI wire format well enough for LangChain's
 ChatOpenAI to drive it -- including tool calling.
 
-Three things the notebook did that must NOT survive into production:
+Three things a notebook-grade router does that must NOT survive into production:
   * timeout=180      -> a hang, not a timeout, on a 90-second stage
   * temperature=0.4  -> too loose for a component that names prices
   * no failover      -> Ollama Cloud has no SLA and no status page
@@ -113,8 +113,8 @@ def reset_breakers() -> None:
 def build_chat_model(
     spec: ProviderSpec, read_timeout_s: float | None = None
 ) -> ChatOpenAI:
-    """One ChatOpenAI per provider. Only base_url/api_key/model differ --
-    which is exactly the notebook's PROVIDER switch, generalised.
+    """One ChatOpenAI per provider. Only base_url/api_key/model differ, which
+    is what makes the failover a list rather than a branch.
 
     `read_timeout_s` overrides the default for callers that are not a live
     negotiation. The default is deliberately aggressive because a shopper is

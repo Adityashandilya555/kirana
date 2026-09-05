@@ -8,7 +8,8 @@ import { Button, inputClass } from '../components/ui'
  * Nobody reaches this in the real flow — a customer scans a sticker and deep
  * links straight to /s/<token>. It exists for the person who types the domain,
  * and for the shopkeeper who needs a way into the console. It used to redirect
- * to a Phase 0 placeholder token, which meant the bare domain greeted every
+ * to a placeholder token left over from early development, which meant the
+ * bare domain greeted every
  * visitor with an error screen.
  */
 export default function LandingPage() {

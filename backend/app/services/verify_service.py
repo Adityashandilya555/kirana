@@ -38,9 +38,9 @@ HEX64 = re.compile(r"^[0-9a-f]{64}$")
 #   alphabet. Running a hex token through it yields DB6E... which matches
 #   nothing, because the column holds db6e...
 #
-# Phase 3 is the first code to look a redemption token up, so this is where it
-# surfaces. Accepting both shapes keeps verification working against tokens
-# already minted while the format is unified; see the note in the PR.
+# Verification is the first code to look a redemption token up, so this is
+# where it surfaces. Accepting both shapes keeps verification working against
+# tokens already minted while the format is unified.
 _SEPARATORS = str.maketrans({"-": None, " ": None, "_": None, ".": None})
 _HEX_TOKEN = re.compile(r"^[0-9a-f]{24}$")
 _CROCKFORD_TOKEN = re.compile(r"^[0-9A-HJKMNP-TV-Z]{12}$")

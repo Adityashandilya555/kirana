@@ -1,16 +1,16 @@
-"""The tool-calling loop, ported from ~/agent1's run_agent().
+"""The tool-calling loop.
 
-The notebook's shape survives intact: bind_tools -> ainvoke -> if the reply
+The shape is deliberately plain: bind_tools -> ainvoke -> if the reply
 carries tool_calls, execute them, append a ToolMessage each, and go round
 again; otherwise that reply is the answer. Capped by max_steps. No framework
 agent executor -- roughly forty lines of control flow that can be read in one
 sitting and debugged on a stage.
 
-Three deliberate departures from the notebook:
+Three things it does that a minimal loop would not:
 
-  * It handles PARALLEL tool calls. The notebook clamped to one because NVIDIA
-    NIM misbehaved; Ollama Cloud returns several per turn and dropping the
-    extras strands their tool_call_ids, which the next request rejects.
+  * It handles PARALLEL tool calls. Ollama Cloud returns several per turn, and
+    dropping the extras strands their tool_call_ids, which the next request
+    rejects.
 
   * It fails over. Each provider from llm.provider_chain() is tried in order,
     and the circuit breaker is fed on the way past.
