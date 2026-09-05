@@ -95,3 +95,8 @@ What is *not* a tradeoff: every one of our database functions is revoked from
 and therefore bypass RLS, so an EXECUTE grant to `anon` would be a direct path to
 `nuke_demo()` over PostgREST. `backend/tests/test_privileges.py` guards it, because
 Postgres re-grants EXECUTE to PUBLIC on every `create or replace`.
+
+
+https://github.com/user-attachments/assets/786fbd4a-4add-452a-8d00-28f9f42f5871
+
+
