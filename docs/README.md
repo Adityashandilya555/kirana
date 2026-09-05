@@ -1,3 +1,7 @@
+
+
+https://github.com/user-attachments/assets/d7b445aa-8f36-4f7c-b930-3f656b85ae5b
+
 # Kirana Agent — documentation
 
 An offline shop's printed QR sticker, turned into an AI that negotiates prices
